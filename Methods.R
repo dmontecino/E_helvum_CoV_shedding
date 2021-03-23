@@ -49,10 +49,10 @@ accra.morogoro<-world.cities%>%
  
  # Example with PNG (for fun, the OP's avatar - I love the raccoon)
  accra.picture=ggdraw() +
-   draw_image("DesE_helvum_CoV_sheddingktop/accra.jpeg") #+
+   draw_image("accra.jpeg") #+
  # draw_plot(my_plot)
  morogoro.picture=ggdraw() +
-   draw_image("E_helvum_CoV_shedding/Morogoro.png") #+
+   draw_image("Morogoro.png") #+
  
 
  figure1=
@@ -64,7 +64,8 @@ accra.morogoro<-world.cities%>%
                          c(2, 3))
  )
 
-  class(figure1)
+figure1
 
+ggsave(file="figure1.tiff", figure1)
 
 
