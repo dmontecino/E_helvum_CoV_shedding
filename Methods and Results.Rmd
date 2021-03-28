@@ -22,6 +22,17 @@ library(maps)
 library(cowplot)
 library(magick)
 library(egg)
+library(rstan)
+library(scales)
+library(rethinking)
+library(lvplot)
+library(RColorBrewer)
+library(gridExtra)
+library(ggplot2)
+library(loo)
+library(DescTools)
+library(openxlsx)
+library(grid)
 ```
 
 ## Methods Figure 1
@@ -83,3 +94,552 @@ accra.morogoro<-world.cities%>%
 
 
 ```
+
+## Descriptive Results
+
+This is the data and script to create the figure showing the results of coronavirus shedding, bat population, and precipitation longitudinally.
+
+```{r descriptive data plot,,message=FALSE, warning=FALSE}
+
+tz.dat=read.csv("data_morogoro_roost_final.csv")
+gh.dat=read.csv("data_accra_roost_final.csv")
+
+
+####################
+### IMPORTANT!!! ### 
+####################
+
+# The data loaded above contain all positive samples which includes 
+# the samples from Ghana whose initial processing and testing had problems
+# because there was a contamination in one of the primers. These positive samples
+# were retested with new reagents and sequenced again.
+# in this step and leaving as positive only those samples 
+# that we are finally considering positive.
+
+
+# Modify GH data
+
+# add new Quan negatives:
+
+new.neg=c("0249", "0319", "0357", "0483", "0670", "0814", "0822", "0842", "0852",
+          "0854", "0861", "0867", "0919", "0929", "0978", "1230", "1478")
+
+gh.dat[gh.dat$id%in%paste0("GHAB", new.neg, ".FEV"), c("id", "Quan_pos", "Quan_sequence", "Quan_predict_virus",  "Quan_interpretation")]
+
+gh.dat[gh.dat$id%in%paste0("GHAB", new.neg, ".FEV"),]$Quan_pos=0
+
+gh.dat[gh.dat$id%in%paste0("GHAB", new.neg, ".FEV"), c("Quan_sequence", "Quan_predict_virus",  "Quan_interpretation")]=NA
+
+#add new Wata negatives
+
+new.neg=c("0129", "0159", "0193", "0194", "0233", "0280", "0344", "0402", "0421", "0530",
+          "0664", "0684", "0804", "0849", "0874", "0882", "0894", "1283", "1349", "1648")
+
+gh.dat[gh.dat$id%in%paste0("GHAB", new.neg, ".FEV"), c("id", "wata_pos", "wata_sequence", "wata_predict_virus",  "wata_interpretation")]
+
+gh.dat[gh.dat$id%in%paste0("GHAB", new.neg, ".FEV"),]$wata_pos=0
+
+gh.dat[gh.dat$id%in%paste0("GHAB", new.neg, ".FEV"), c("wata_sequence", "wata_predict_virus",  "wata_interpretation")]=NA
+
+# new positives in Ghana
+
+gh.dat$positive=ifelse(gh.dat$Quan_pos==1 | gh.dat$wata_pos==1,1,0)
+
+
+
+
+
+
+
+
+# periods, precipitaiton and roost size
+
+dat.acc=data.frame(
+  
+  # Accra
+  pop=tapply(gh.dat$pop, list(gh.dat$month), unique)[match(month.name[c(3:12,1,2)], names(tapply(gh.dat$pop, list(gh.dat$month), unique)))],
+  
+  # Monthly Precipitaiton
+  precip=tapply(gh.dat$precip.month, list(gh.dat$month), unique)[match(month.name[c(3:12,1,2)], names(tapply(gh.dat$precip.month, list(gh.dat$month), unique)))],
+  
+  #Positivity
+  pos=tapply(gh.dat$positive, list(gh.dat$month), mean)[match(month.name[c(3:12,1,2)], names(tapply(gh.dat$positive, list(gh.dat$month), mean)))]+0.0022)
+
+
+
+
+#MOROGORO
+
+dat.mor=data.frame(
+  # Population
+  pop=scale(tapply(tz.dat$pop, list(tz.dat$month), unique)[match(month.name[c(8:12,1:7)], names(tapply(tz.dat$pop, list(tz.dat$month), unique)))], center = T)[,1],
+  
+  # Monthly Precipitaiton
+  precip=scale(tapply(tz.dat$precip.month, list(tz.dat$month), unique)[match(month.name[c(8:12,1:7)], names(tapply(tz.dat$precip.month, list(tz.dat$month), unique)))], center = T)[,1],
+  
+  #Positivity
+  pos=scale(tapply(tz.dat$positive, list(tz.dat$month), mean)[match(month.name[c(8:12,1:7)], names(tapply(tz.dat$precip.month, list(tz.dat$month), unique)))], center = T)[,1])
+
+
+
+
+
+test=scale(tapply(tz.dat$pop, list(tz.dat$month), unique)[match(month.name[c(8:12,1:7)], names(tapply(tz.dat$pop, list(tz.dat$month), unique)))], center = T)
+
+test2=scale(tapply(tz.dat$precip.month, list(tz.dat$month), unique)[match(month.name[c(8:12,1:7)], names(tapply(tz.dat$precip.month, list(tz.dat$month), unique)))], center = T)
+
+test3=scale(tapply(tz.dat$positive, list(tz.dat$month), mean)[match(month.name[c(8:12,1:7)], names(tapply(tz.dat$precip.month, list(tz.dat$month), unique)))], center = T)
+
+
+grob <- grobTree(textGrob("Rest of the year", x=0.1,  y=0.85, hjust=0,
+                          gp=gpar(col="black", fontsize=13)))
+
+grob2 <- grobTree(textGrob("Lactation", x=0.39,  y=0.85, hjust=0,
+                           gp=gpar(col="black", fontsize=13)))
+
+grob3 <- grobTree(textGrob("Weaning", x=0.64,  y=0.85, hjust=0,
+                           gp=gpar(col="black", fontsize=13)))
+
+
+# precipitation
+
+precip.mor=ggplot() + 
+  
+  geom_polygon(aes(x=c(1, 10, 10,1), y = c(-1.1,-1.1,3,3)), fill=alpha("#56B4E9",0.4))+
+  geom_polygon(aes(x=c(22, 25, 25,22), y = c(-1.1,-1.1,3,3)), fill=alpha("#56B4E9",0.4))+
+  geom_polygon(aes(x=c(10, 14, 14,10), y = c(-1.1,-1.1,3,3)), fill=alpha("#FEE0B6",0.5))+
+  geom_polygon(aes(x=c(14, 22, 22, 14), y = c(-1.1,-1.1,3,3)), fill=alpha("#DECBE4",0.5))+
+  
+  geom_line(data = dat.mor, aes(x = seq(2,24, by = 2), y = precip), color = alpha('darkgreen', 0.7)) +
+  geom_point(data = dat.mor, aes(x = seq(2,24, by = 2,), y = precip, size=2), color = alpha('darkgreen', 0.7)) +
+  
+  scale_y_continuous(name ="Precipitation (mm/day)",
+                     breaks=(seq(0,4, length.out = 6)-attr(test2, 'scaled:center')) / attr(test2, 'scaled:scale'),
+                     labels=seq(0,4, length.out = 6)) +
+  
+  scale_x_continuous(name = "",
+                     breaks=seq(2,25, by = 2),
+                     labels=month.name[c(8:12, 1:7)]) +
+  
+  annotation_custom(grob) +
+  annotation_custom(grob2) +
+  annotation_custom(grob3) +
+  
+  theme(legend.position = "none", 
+        axis.text.x = element_text(size=14, angle=90), 
+        axis.text.y = element_text(size=14),
+        axis.title.y = element_text(size=24, margin = margin(t = 0, r = 15, b = 0, l = 0)),
+        axis.title.x = element_text(size=24, margin = margin(t = 15, r = 0, b = 0, l = 0)))
+
+
+# precip.mor
+
+
+# population
+
+pop.mor=ggplot() + 
+  
+  geom_polygon(aes(x=c(1, 10, 10,1), y = c(-1.1,-1.1,3,3)), fill=alpha("#56B4E9",0.4))+
+  geom_polygon(aes(x=c(22, 25, 25,22), y = c(-1.1,-1.1,3,3)), fill=alpha("#56B4E9",0.4))+
+  geom_polygon(aes(x=c(10, 14, 14,10), y = c(-1.1,-1.1,3,3)), fill=alpha("#FEE0B6",0.5))+
+  geom_polygon(aes(x=c(14, 22, 22, 14), y = c(-1.1,-1.1,3,3)), fill=alpha("#DECBE4",0.5))+
+  
+  geom_line(data = dat.mor, aes(x = seq(2,24, by = 2), y = pop), color = alpha('darkblue', 0.7)) +
+  geom_point(data = dat.mor, aes(x = seq(2,24, by = 2,), y = pop, size=2), color = alpha('darkblue', 0.7)) +
+  
+  scale_y_continuous(name =expression(paste('Population size ', "(*10"^"4", ")")),
+                     breaks=(seq(from = 0, to = 50000, length.out = 6)-attr(test, 'scaled:center')) / attr(test, 'scaled:scale'),
+                     labels=seq(from = 0, to = 5, length.out = 6)) +
+  
+  scale_x_continuous(name = "", 
+                     breaks=seq(2,25, by = 2),
+                     labels=month.name[c(8:12, 1:7)]) +
+  
+  theme(legend.position = "none", 
+        axis.text.x = element_text(size=14, angle=90), 
+        axis.text.y = element_text(size=14),
+        axis.title.y = element_text(size=24, margin = margin(t = 0, r = 15, b = 0, l = 0)),
+        axis.title.x = element_text(size=24, margin = margin(t = 15, r = 0, b = 0, l = 0)))
+
+
+# pop.mor
+
+
+# positives
+
+pos.mor=ggplot() + 
+  
+  geom_polygon(aes(x=c(1, 10, 10,1), y = c(-1.1,-1.1,3,3)), fill=alpha("#56B4E9",0.4))+
+  geom_polygon(aes(x=c(22, 25, 25,22), y = c(-1.1,-1.1,3,3)), fill=alpha("#56B4E9",0.4))+
+  geom_polygon(aes(x=c(10, 14, 14,10), y = c(-1.1,-1.1,3,3)), fill=alpha("#FEE0B6",0.5))+
+  geom_polygon(aes(x=c(14, 22, 22, 14), y = c(-1.1,-1.1,3,3)), fill=alpha("#DECBE4",0.5))+
+  
+  geom_line(data = dat.mor, aes(x = seq(2,24, by = 2), y = pos), color = 'red') +
+  geom_point(data = dat.mor, aes(x = seq(2,24, by = 2,), y = pos, size=2), color = "red") +
+  
+  scale_y_continuous(name ="Proportion positive to CoV",
+                     breaks=(seq(0,0.3, by = 0.1)-attr(test3, 'scaled:center')) / attr(test3, 'scaled:scale'),
+                     labels=seq(0,0.3, by = 0.1)) +
+  
+  scale_x_continuous(name = "Month",
+                     breaks=seq(2,25, by = 2),
+                     labels=month.name[c(8:12, 1:7)]) +
+  
+  theme(legend.position = "none", 
+        axis.text.x = element_text(size=14, angle=90), 
+        axis.text.y = element_text(size=14),
+        axis.title.y = element_text(size=24, margin = margin(t = 0, r = 15, b = 0, l = 0)),
+        axis.title.x = element_text(size=24, margin = margin(t = 15, r = 0, b = 0, l = 0)))
+
+
+# pos.mor
+
+
+
+
+## GHANA ##
+
+test=scale(tapply(gh.dat$pop, list(gh.dat$month), unique)[match(month.name[c(3:12,1,2)], names(tapply(gh.dat$pop, list(gh.dat$month), unique)))], center = T)
+
+test2=scale(tapply(gh.dat$precip.month, list(gh.dat$month), unique)[match(month.name[c(3:12,1,2)], names(tapply(gh.dat$precip.month, list(gh.dat$month), unique)))], center = T)
+
+test3=scale(tapply(gh.dat$positive, list(gh.dat$month), mean)[match(month.name[c(3:12,1,2)], names(tapply(gh.dat$precip.month, list(gh.dat$month), unique)))], center = T)
+
+
+grob <- grobTree(textGrob("Lactation", x=0.16,  y=0.85, hjust=0,
+                          gp=gpar(col="black", fontsize=13)))
+
+grob2 <- grobTree(textGrob("Weaning", x=0.4,  y=0.85, hjust=0,
+                           gp=gpar(col="black", fontsize=13)))
+
+grob3 <- grobTree(textGrob("Rest of the year", x=0.67,  y=0.85, hjust=0,
+                           gp=gpar(col="black", fontsize=13)))
+
+
+dat.acc=data.frame(
+  # Population
+  pop=scale(tapply(gh.dat$pop, list(gh.dat$month), unique)[match(month.name[c(3:12,1,2)], names(tapply(gh.dat$pop, list(gh.dat$month), unique)))], center = T)[,1],
+  
+  # Monthly Precipitaiton
+  precip=scale(tapply(gh.dat$precip.month, list(gh.dat$month), unique)[match(month.name[c(3:12,1,2)], names(tapply(gh.dat$precip.month, list(gh.dat$month), unique)))], center = T)[,1],
+  
+  #Positivity
+  pos=scale(tapply(gh.dat$positive, list(gh.dat$month), mean)[match(month.name[c(3:12,1,2)], names(tapply(gh.dat$precip.month, list(gh.dat$month), unique)))], center = T)[,1])
+
+
+# precipitation
+
+precip.acc=ggplot() + 
+  
+  geom_polygon(aes(x=c(1, 4, 4,1), y = c(-1.1,-1.1,3,3)), fill=alpha("#56B4E9",0.4))+
+  geom_polygon(aes(x=c(16, 25, 25,16), y = c(-1.1,-1.1,3,3)), fill=alpha("#56B4E9",0.4))+
+  geom_polygon(aes(x=c(4, 8, 8, 4), y = c(-1.1,-1.1,3,3)), fill=alpha("#FEE0B6",0.5))+
+  geom_polygon(aes(x=c(8, 16, 16, 8), y = c(-1.1,-1.1,3,3)), fill=alpha("#DECBE4",0.5))+
+  
+  geom_line(data = dat.acc, aes(x = seq(2,24, by = 2), y = precip), color = alpha('darkgreen', 0.7)) +
+  geom_point(data = dat.acc, aes(x = seq(2,24, by = 2,), y = precip, size=2), color = alpha('darkgreen', 0.7)) +
+  
+  scale_y_continuous(name ="",
+                     breaks=(seq(0,6, length.out = 6)-attr(test2, 'scaled:center')) / attr(test2, 'scaled:scale'),
+                     labels=seq(0,6, length.out = 6)) +
+  
+  scale_x_continuous(name = "",
+                     breaks=seq(2,25, by = 2),
+                     labels=month.name[c(3:12,1,2)]) +
+  
+  annotation_custom(grob) +
+  annotation_custom(grob2) +
+  annotation_custom(grob3) +
+  
+  theme(legend.position = "none", 
+        axis.text.x = element_text(size=14, angle=90), 
+        axis.text.y = element_text(size=14),
+        axis.title.y = element_text(size=24, margin = margin(t = 0, r = 15, b = 0, l = 0)),
+        axis.title.x = element_text(size=24, margin = margin(t = 15, r = 0, b = 0, l = 0)))
+
+
+# precip.acc
+
+
+# population
+
+pop.acc=ggplot() + 
+  
+  geom_polygon(aes(x=c(1, 4, 4,1), y = c(-1.1,-1.1,3,3)), fill=alpha("#56B4E9",0.4))+
+  geom_polygon(aes(x=c(16, 25, 25,16), y = c(-1.1,-1.1,3,3)), fill=alpha("#56B4E9",0.4))+
+  geom_polygon(aes(x=c(4, 8, 8, 4), y = c(-1.1,-1.1,3,3)), fill=alpha("#FEE0B6",0.5))+
+  geom_polygon(aes(x=c(8, 16, 16, 8), y = c(-1.1,-1.1,3,3)), fill=alpha("#DECBE4",0.5))+
+  
+  geom_line(data = dat.acc, aes(x = seq(2,24, by = 2), y = pop), color = alpha('darkblue', 0.7)) +
+  geom_point(data = dat.acc, aes(x = seq(2,24, by = 2,), y = pop, size=2), color = alpha('darkblue', 0.7)) +
+  
+  scale_y_continuous(
+                     name =' ',
+                     breaks=(seq(from = 0, to = 1200000, length.out = 6)-attr(test, 'scaled:center')) / attr(test, 'scaled:scale'),
+                     labels=seq(from = 0, to = 120, length.out = 6)) +
+  
+  scale_x_continuous(name = "", 
+                     breaks=seq(2,25, by = 2),
+                     labels=month.name[c(8:12, 1:7)]) +
+
+  
+  theme(legend.position = "none", 
+        axis.text.x = element_text(size=14, angle=90), 
+        axis.text.y = element_text(size=14),
+        axis.title.y = element_text(size=24, margin = margin(t = 0, r = 15, b = 0, l = 0)),
+        axis.title.x = element_text(size=24, margin = margin(t = 15, r = 0, b = 0, l = 0)))
+
+# pop.acc
+
+
+
+# positives
+
+pos.acc=ggplot() + 
+  
+  geom_polygon(aes(x=c(1, 4, 4,1), y = c(-1.1,-1.1,3,3)), fill=alpha("#56B4E9",0.4))+
+  geom_polygon(aes(x=c(16, 25, 25,16), y = c(-1.1,-1.1,3,3)), fill=alpha("#56B4E9",0.4))+
+  geom_polygon(aes(x=c(4, 8, 8, 4), y = c(-1.1,-1.1,3,3)), fill=alpha("#FEE0B6",0.5))+
+  geom_polygon(aes(x=c(8, 16, 16, 8), y = c(-1.1,-1.1,3,3)), fill=alpha("#DECBE4",0.5))+
+  
+  geom_line(data = dat.acc, aes(x = seq(2,24, by = 2), y = pos), color = 'red') +
+  geom_point(data = dat.acc, aes(x = seq(2,24, by = 2,), y = pos, size=2), color = "red") +
+  
+  scale_y_continuous(
+    name =expression(' '),
+                     breaks=(seq(0,0.1, by = 0.0125)-attr(test3, 'scaled:center')) / attr(test3, 'scaled:scale'),
+                     labels=seq(0,0.1, by = 0.0125)) +
+  
+  scale_x_continuous(name = "Month",
+                     breaks=seq(2,25, by = 2),
+                     labels=month.name[c(8:12, 1:7)]) +
+  
+  theme(legend.position = "none", 
+        axis.text.x = element_text(size=14, angle=90), 
+        axis.text.y = element_text(size=14),
+        axis.title.y = element_text(size=24, margin = margin(t = 0, r = 15, b = 0, l = 0)),
+        axis.title.x = element_text(size=24, margin = margin(t = 15, r = 0, b = 0, l = 0)))
+
+
+# pos.acc
+
+
+
+# Put all plots in a single figure
+
+ready=grid.arrange(grobs = list(precip.mor + theme(plot.margin = unit(c(0.2,0.2,0,0.2), "cm")),
+                                precip.acc + theme(plot.margin = unit(c(0.2,0.2,0,0.2), "cm")),
+                                pop.mor + theme(plot.margin = unit(c(0.2,0.2,0,0.2), "cm")),
+                                pop.acc + theme(plot.margin = unit(c(0.2,0.2,0,0.2), "cm")),
+                                pos.mor + theme(plot.margin = unit(c(0.2,0.2,0,0.2), "cm")),
+                                pos.acc + theme(plot.margin = unit(c(0.2,0.2,0,0.2), "cm"))), 
+                   nrow=3, ncol=2,
+                   top = textGrob("   Morogoro, Tanzania                               Accra, Ghana",gp=gpar(fontsize=30,font=1)))
+
+
+ggsave(filename = "figure2.tiff", plot = ready, device = "png", width = 17*2, height = 40, units = "cm")
+
+
+```
+
+## Assessing seasonality
+
+The following R code correspond to the STAN script for the intercept-only model.
+
+```{r intercept model,message=FALSE, warning=FALSE}
+
+modelstring="
+data{
+int N; // number of observations. It means it is an integer with nodecimal points
+int y[N]; //outcome 
+}
+
+ parameters {
+   // Define parameters to estimate
+   real alpha;
+ }   
+
+model {
+  real mu[N];
+  
+  // Priors
+  alpha ~ normal(0, 1.1);
+ 
+  // model
+  for (i in 1:N) {
+    mu[i] = alpha;
+  }
+
+
+  // Likelihood part of Bayesian inference
+  for (i in 1:N) {
+    y[i] ~ bernoulli_logit(mu[i]);
+  }
+}
+
+generated quantities {
+int y_rep[N];
+vector[N] log_lik; 
+real dev;
+dev = 0;
+
+
+for (i in 1:N){ 
+
+real mu;
+mu = alpha;
+
+dev = dev + (-2)*bernoulli_logit_lpmf( y[i] | mu);
+log_lik[i] = bernoulli_logit_lpmf(y[i] | mu);
+
+y_rep[i] = bernoulli_logit_rng(alpha);
+
+}
+
+}
+"
+```
+
+The following R code correspond to the STAN script for the sine - cosine model. 
+
+```{r sine cosine model,message=FALSE, warning=FALSE}
+
+modelstring="
+data{
+int N; // number of observations. It means it is an integer with nodecimal points
+int y[N]; //outcome 
+real day_over_year[N];
+}
+
+ parameters {
+   // Define parameters to estimate
+   real alpha;
+   real beta_sine;
+   real beta_cosine;
+ }   
+
+model {
+  real mu[N];
+  
+  // Priors
+  alpha ~ normal(0, 1.1);
+  beta_sine ~ normal(0, 1.1);
+  beta_cosine ~ normal(0, 1.1);
+ 
+  // model
+  for (i in 1:N) {
+    mu[i] = alpha + beta_cosine* cos(2*pi()*day_over_year[i]) + beta_sine* sin(2*pi()*day_over_year[i]);
+  }
+
+
+  // Likelihood part of Bayesian inference
+  for (i in 1:N) {
+    y[i] ~ bernoulli_logit(mu[i]);
+  }
+}
+
+generated quantities {
+int y_rep[N];
+vector[N] log_lik; 
+real dev;
+dev = 0;
+
+
+for (i in 1:N){ 
+
+real mu;
+mu = alpha + beta_cosine* cos(2*pi()*day_over_year[i]) + beta_sine* sin(2*pi()*day_over_year[i]);
+
+dev = dev + (-2)*bernoulli_logit_lpmf( y[i] | mu);
+log_lik[i] = bernoulli_logit_lpmf(y[i] | mu);
+
+y_rep[i] = bernoulli_logit_rng(alpha + beta_cosine* cos(2*pi()*day_over_year[i]) + beta_sine* sin(2*pi()*day_over_year[i]));
+
+}
+
+}
+"
+```
+
+Run the models
+
+
+
+tz.dat=read.csv("data_morogoro_roost_final.csv")
+
+# Data
+N<-nrow(tz.dat)
+y<-tz.dat$pos
+
+data=list(N=N, 
+          y=y)
+
+#Model
+
+# mod0_stan <- stan(model_code = modelstring,  
+#                   data = data, control = list(adapt_delta=0.999, max_treedepth =17),
+#                   cores=4, chains=4, warmup = 5000, iter = 10000, thin = 5)
+
+# saveRDS(mod0_stan, "model_intercept.RDS")
+
+```
+
+
+
+
+
+
+
+# adding the date of the year the samples were taken
+nDigits <- function(x) nchar( trunc( abs(x) ) )
+
+
+# files.temp=list.files("Google Drive File Stream/My Drive/UC Davis/PhD_Project/Bats/Chapter 3/Tanzania/")[
+#   grep(x=list.files("Google Drive File Stream/My Drive/UC Davis/PhD_Project/Bats/Chapter 3/Tanzania/"), 
+#        pattern="AnimalSpecimenTemplate_P2_v7")][-2]
+# 
+# files.temp=files.temp[sapply(month.name, function(x) grep(pattern = x, files.temp))]
+# 
+# 
+# temp.dir="Google Drive File Stream/My Drive/UC Davis/PhD_Project/Bats/Chapter 3/Tanzania/"
+# 
+# tz.dat$date<-NA
+# 
+# tz.dat$date<- unlist(
+#   sapply(month.name, function(x){
+#     rep(  
+#       yday(
+#         
+#         paste0(
+#           substr(strsplit(read.xlsx(paste0(temp.dir, files.temp[grep(pattern = x, files.temp)]), sheet = 2, startRow = 4)[,1][1], "-")[[1]][3], 1, 4), "-",
+#           
+#           ifelse(
+#             nDigits(
+#               which(month.abb==substr(strsplit(read.xlsx(paste0(temp.dir, files.temp[grep(pattern = x, files.temp)]), sheet = 2, startRow = 4)[,1][1], "-")[[1]][3], 5, 7)))==1, 
+#             paste0("0", as.character(which(month.abb==substr(strsplit(read.xlsx(paste0(temp.dir, files.temp[grep(pattern = x, files.temp)]), sheet = 2, startRow = 4)[,1][1], "-")[[1]][3], 5, 7)))),
+#             as.character(which(month.abb==substr(strsplit(read.xlsx(paste0(temp.dir, files.temp[grep(pattern = x, files.temp)]), sheet = 2, startRow = 4)[,1][1], "-")[[1]][3], 5, 7)))), "-",
+#           
+#           substr(strsplit(read.xlsx(paste0(temp.dir, files.temp[grep(pattern = x, files.temp)]), sheet = 2, startRow = 4)[,1][1], "-")[[1]][3], 8, 9))
+#       ),
+#       
+#       nrow(tz.dat[tz.dat$month==x,]))}))
+# 
+# N<-nrow(tz.dat)
+# y<-tz.dat$pos
+# day_over_year<-tz.dat$date/365
+# 
+# 
+# data=list(N=N, 
+#           y=y,
+#           day_over_year=day_over_year)
+# 
+# 
+# mod1_stan <- stan(model_code = modelstring,  
+#                   data = data, control = list(adapt_delta=0.999, max_treedepth =17),
+#                   cores=4, chains=4, warmup = 5000, iter = 10000, thin = 5)
+# 
+# saveRDS(mod1_stan, "/Volumes/GoogleDrive/My Drive/UC Davis/PhD_Project/Bats/Chapter 3/Paper/Frontiers in Ecology and Evolution/model_sine_cosine.RDS")
+
+
+```
+ 
