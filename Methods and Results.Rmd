@@ -23,8 +23,10 @@ library(cowplot)
 library(magick)
 library(egg)
 library(rstan)
-library(scales)
+library(scales) 
 library(rethinking)
+library(tidybayes)
+library(reshape2)
 library(lvplot)
 library(RColorBrewer)
 library(gridExtra)
@@ -33,6 +35,7 @@ library(loo)
 library(DescTools)
 library(openxlsx)
 library(grid)
+library(kableExtra)
 ```
 
 ## Methods Figure 1
@@ -95,61 +98,20 @@ accra.morogoro<-world.cities%>%
 
 ```
 
+## Load data
+
+```{r load data plot,,message=FALSE, warning=FALSE}
+
+tz.dat=read.csv("data_morogoro_roost_final.csv")
+gh.dat=read.csv("data_accra_roost_final.csv")
+
+```
+
 ## Descriptive Results
 
 This is the data and script to create the figure showing the results of coronavirus shedding, bat population, and precipitation longitudinally.
 
 ```{r descriptive data plot,,message=FALSE, warning=FALSE}
-
-tz.dat=read.csv("data_morogoro_roost_final.csv")
-gh.dat=read.csv("data_accra_roost_final.csv")
-
-
-####################
-### IMPORTANT!!! ### 
-####################
-
-# The data loaded above contain all positive samples which includes 
-# the samples from Ghana whose initial processing and testing had problems
-# because there was a contamination in one of the primers. These positive samples
-# were retested with new reagents and sequenced again.
-# in this step and leaving as positive only those samples 
-# that we are finally considering positive.
-
-
-# Modify GH data
-
-# add new Quan negatives:
-
-new.neg=c("0249", "0319", "0357", "0483", "0670", "0814", "0822", "0842", "0852",
-          "0854", "0861", "0867", "0919", "0929", "0978", "1230", "1478")
-
-gh.dat[gh.dat$id%in%paste0("GHAB", new.neg, ".FEV"), c("id", "Quan_pos", "Quan_sequence", "Quan_predict_virus",  "Quan_interpretation")]
-
-gh.dat[gh.dat$id%in%paste0("GHAB", new.neg, ".FEV"),]$Quan_pos=0
-
-gh.dat[gh.dat$id%in%paste0("GHAB", new.neg, ".FEV"), c("Quan_sequence", "Quan_predict_virus",  "Quan_interpretation")]=NA
-
-#add new Wata negatives
-
-new.neg=c("0129", "0159", "0193", "0194", "0233", "0280", "0344", "0402", "0421", "0530",
-          "0664", "0684", "0804", "0849", "0874", "0882", "0894", "1283", "1349", "1648")
-
-gh.dat[gh.dat$id%in%paste0("GHAB", new.neg, ".FEV"), c("id", "wata_pos", "wata_sequence", "wata_predict_virus",  "wata_interpretation")]
-
-gh.dat[gh.dat$id%in%paste0("GHAB", new.neg, ".FEV"),]$wata_pos=0
-
-gh.dat[gh.dat$id%in%paste0("GHAB", new.neg, ".FEV"), c("wata_sequence", "wata_predict_virus",  "wata_interpretation")]=NA
-
-# new positives in Ghana
-
-gh.dat$positive=ifelse(gh.dat$Quan_pos==1 | gh.dat$wata_pos==1,1,0)
-
-
-
-
-
-
 
 
 # periods, precipitaiton and roost size
@@ -380,7 +342,7 @@ pop.acc=ggplot() +
   
   scale_x_continuous(name = "", 
                      breaks=seq(2,25, by = 2),
-                     labels=month.name[c(8:12, 1:7)]) +
+                     labels=month.name[c(3:12,1,2)]) +
 
   
   theme(legend.position = "none", 
@@ -412,7 +374,7 @@ pos.acc=ggplot() +
   
   scale_x_continuous(name = "Month",
                      breaks=seq(2,25, by = 2),
-                     labels=month.name[c(8:12, 1:7)]) +
+                     labels=month.name[c(3:12,1,2)]) +
   
   theme(legend.position = "none", 
         axis.text.x = element_text(size=14, angle=90), 
@@ -437,7 +399,7 @@ ready=grid.arrange(grobs = list(precip.mor + theme(plot.margin = unit(c(0.2,0.2,
                    top = textGrob("   Morogoro, Tanzania                               Accra, Ghana",gp=gpar(fontsize=30,font=1)))
 
 
-ggsave(filename = "figure2.tiff", plot = ready, device = "png", width = 17*2, height = 40, units = "cm")
+# ggsave(filename = "figure2.tiff", plot = ready, device = "png", width = 17*2, height = 40, units = "cm")
 
 
 ```
@@ -448,7 +410,7 @@ The following R code correspond to the STAN script for the intercept-only model.
 
 ```{r intercept model,message=FALSE, warning=FALSE}
 
-modelstring="
+modelstring.int="
 data{
 int N; // number of observations. It means it is an integer with nodecimal points
 int y[N]; //outcome 
@@ -463,7 +425,7 @@ model {
   real mu[N];
   
   // Priors
-  alpha ~ normal(0, 1.1);
+  alpha ~ normal(0, 1);
  
   // model
   for (i in 1:N) {
@@ -504,7 +466,7 @@ The following R code correspond to the STAN script for the sine - cosine model.
 
 ```{r sine cosine model,message=FALSE, warning=FALSE}
 
-modelstring="
+modelstring.sine.cosine="
 data{
 int N; // number of observations. It means it is an integer with nodecimal points
 int y[N]; //outcome 
@@ -522,9 +484,9 @@ model {
   real mu[N];
   
   // Priors
-  alpha ~ normal(0, 1.1);
-  beta_sine ~ normal(0, 1.1);
-  beta_cosine ~ normal(0, 1.1);
+  alpha ~ normal(0, 1);
+  beta_sine ~ normal(0, 1);
+  beta_cosine ~ normal(0, 1);
  
   // model
   for (i in 1:N) {
@@ -561,85 +523,794 @@ y_rep[i] = bernoulli_logit_rng(alpha + beta_cosine* cos(2*pi()*day_over_year[i])
 "
 ```
 
-Run the models
+Run the intercept only model
 
-
-
-tz.dat=read.csv("data_morogoro_roost_final.csv")
+```{r run intercept only model, message=FALSE, warning=FALSE, eval=FALSE}
 
 # Data
 N<-nrow(tz.dat)
 y<-tz.dat$pos
 
+data=list(N=N, y=y)
+
+# Intercpt Only Model
+
+mod_intercept_stan <- stan(model_code = modelstring.int,
+                  data = data, control = list(adapt_delta=0.999, max_treedepth =17),
+                  cores=4, chains=4, warmup = 5000, iter = 10000, thin = 5)
+
+saveRDS(mod_intercept_stan, "model_intercept.RDS")
+
+
+```
+
+
+Run the sine-cosine only model
+
+```{r run sine-cosine model, message=FALSE, warning=FALSE, eval=FALSE}
+
+
+N<-nrow(tz.dat)
+y<-tz.dat$pos
+day_over_year<-tz.dat$date/365
+
+
+data=list(N=N,
+          y=y,
+          day_over_year=day_over_year)
+
+
+mod_sine_cos_stan <- stan(model_code = modelstring.sine.cosine,
+                  data = data, control = list(adapt_delta=0.999, max_treedepth =17),
+                  cores=4, chains=4, warmup = 5000, iter = 10000, thin = 5)
+
+saveRDS(mod_sine_cos_stan, "model_sine_cosine.RDS")
+
+```
+
+
+## Assessing association between reproductive season and coronavirus shedding
+
+The following R code correspond to the STAN script for the fixed effects model.
+
+```{r  fixed effects model, message=FALSE, warning=FALSE}
+
+# -----  Fixed effects model ----#
+
+modelstring_fixed=
+  "
+data {
+  int N;
+  int y[N];
+  int lact[N];
+  int wean[N];
+}
+
+parameters {
+  real alpha;
+  real beta_wean;
+  real beta_lact;
+  
+}
+
+model {
+   
+   for (i in 1:N){
+      
+      y[i] ~ bernoulli_logit(alpha + beta_wean*wean[i] + beta_lact*lact[i]);}
+  
+  alpha ~ normal( 0.0, 1);
+  beta_wean ~ normal( 0.0, 1);
+  beta_lact ~ normal( 0.0, 1);
+}
+
+generated quantities {
+int y_rep[N];
+
+for (i in 1:N){
+y_rep[i] = bernoulli_logit_rng(alpha + beta_wean*wean[i] + beta_lact*lact[i]);}
+
+}
+
+"
+
+```
+
+The following R code correspond to the STAN script for the hiearchical model.
+
+```{r  hierarchical model, message=FALSE, warning=FALSE}
+
+#----- Grouping factor per month and the months included ----- #
+# in reproductive period ------------------------------------- #
+
+modelstring_hierachical=
+  "
+data {
+  // Number of level-1 observations (an integer)
+  int<lower=0> N;
+  // Number of month clusters
+  int<lower=0> J;
+  // Number of repro clusters
+  int<lower=0> K;
+
+  //Outcome
+  int y[N];
+
+  // Cluster indexes
+  int<lower=1> index_repro_periods[J];
+  int<lower=1> index_months[N];
+  
+}
+
+parameters {
+  // Define parameters to estimate
+  
+  // Level-2 random effect
+  real beta_month[J];
+  real<lower=0> sigma_month;
+
+  // Level-3 random effect
+  real beta_repro[K];
+  real<lower=0> sigma_repro;
+}
+
+transformed parameters  {
+  // Varying intercepts
+  real beta_0jk[J];
+  real beta_0k[K];
+
+  // Individual mean
+  real p[N];
+
+  // Varying intercepts definition
+  
+  // Level-3 (10 level-3 random intercepts)
+  for (k in 1:K) {
+  beta_0k[k] =beta_repro[k]* sigma_repro;
+  }
+  
+  // Level-2 (100 level-2 random intercepts)
+  for (j in 1:J) {
+    beta_0jk[j] = beta_0k[index_repro_periods[j]] + beta_month[j] *sigma_month;
+  }
+  // Individual mean
+  for (i in 1:N) {
+    p[i] =beta_0jk[index_months[i]];
+  }
+}
+
+model {
+  // Prior part of Bayesian inference
+
+  // Random effects distribution
+  
+  beta_month ~ normal(0, 1);
+  beta_repro ~ normal(0, 1);
+  
+
+  sigma_month ~ cauchy(0,1) ;
+  sigma_repro ~ cauchy(0,1) ;
+
+  // Likelihood part of Bayesian inference
+  for (i in 1:N) {
+    y[i] ~ bernoulli_logit(p[i]);
+  }
+}
+
+
+generated quantities {
+
+int y_rep[N];
+vector[N] log_lik; 
+real dev;
+dev = 0;
+
+
+for (i in 1:N){ 
+
+real mu;
+mu = beta_0jk[index_months[i]];
+
+dev = dev + (-2)*bernoulli_logit_lpmf( y[i] | mu);
+log_lik[i] = bernoulli_logit_lpmf(y[i] | mu);
+
+y_rep[i] = bernoulli_logit_rng(p[i]);
+
+}
+
+}
+"
+```
+
+Run the fixed effects model
+
+```{r run fix effects model, message=FALSE, warning=FALSE, eval=FALSE}
+
+N<-nrow(tz.dat)
+y<-tz.dat$positive
+wean=ifelse(tz.dat$repro.per=="weaning",1,0)
+lact=ifelse(tz.dat$repro.per=="birth",1,0)
+
 data=list(N=N, 
-          y=y)
+          y=y,
+          wean=wean,
+          lact=lact)
 
-#Model
 
-# mod0_stan <- stan(model_code = modelstring,  
-#                   data = data, control = list(adapt_delta=0.999, max_treedepth =17),
-#                   cores=4, chains=4, warmup = 5000, iter = 10000, thin = 5)
+mod_fixed_stan <- stan(model_code = modelstring_fixed,  
+                  data = data, control = list(adapt_delta=0.999, max_treedepth =17),
+                  cores=4, chains=4, warmup = 5000, iter = 10000, thin = 5)
 
-# saveRDS(mod0_stan, "model_intercept.RDS")
+saveRDS(mod_fixed_stan, "model_repro_periods_only_fixed_effects.RDS")  
+
+
+
+
+```
+
+Run the hierarchical model
+
+```{r run hierarchical model, message=FALSE, warning=FALSE, eval=FALSE}
+
+N <- nrow(tz.dat)
+K <- length(unique(tz.dat$repro))
+J <- length(unique(tz.dat$month))
+y <- tz.dat$pos
+
+index_months <- as.integer(factor(tz.dat$month, levels = month.name[c(8:12,1:7)]))
+
+index_repro_periods=sapply(month.name[c(8:12,1:7)], function(x)
+  as.integer(factor(tz.dat$repro, levels = c("rest", "birth", "weaning")))[tz.dat$month==x][1])
+
+
+data=list(N=N, 
+          K=K,
+          J=J,
+          y=y,
+          index_repro_periods=index_repro_periods, 
+          index_months=index_months)
+
+
+mod_hierarchical_stan <- stan(model_code = modelstring_hierachical,  
+                      data = data, control = list(adapt_delta=0.999, max_treedepth =17),
+                      cores=4, chains=4, warmup = 5000, iter = 10000, thin = 5)
+
+
+saveRDS(mod_hierarchical_stan, "hierarchical_model.RDS")  
+
+```
+
+# RESULTS
+
+
+
+## Supporting Information 1
+
+Intercept only model
+```{r supporting information 1 int model ,,message=FALSE, warning=FALSE}
+
+# Traceplots
+
+
+# Intercept only
+
+# Traceplots
+# jpeg("Traceplots_intercept_only_model.jpeg", width = 1100, height = 1000)
+traceplot(mod_intercept_stan, pars="alpha") +
+  
+  theme(legend.title = element_text(size = 24),
+        legend.text = element_text( size = 20), 
+        axis.text.x = element_text(size=20), 
+        axis.text.y = element_text(size=20),
+        axis.title.y = element_text(size=34, margin = margin(t = 0, r = 15, b = 0, l = 0)),
+        axis.title.x = element_text(size=34, margin = margin(t = 15, r = 0, b = 0, l = 0)))
+# dev.off()
+
+```
+
+Sine-cosine model
+
+```{r supporting information 1 sine - cosine model, message=FALSE, warning=FALSE}
+
+
+# Summary of the Posterior Probability Distributions of the sine-cosine logistic model parameters.
+
+out=
+cbind(
+round(
+  # summary mean sd of coeffiecients
+  summary(mod_sine_cos_stan, pars = c("alpha",
+                                        "beta_sine",
+                                        "beta_cosine"))$summary, 3)[,c("mean", "sd")],
+
+#HPDI coefficients
+do.call(rbind,
+mclapply(c("alpha", "beta_sine", "beta_cosine"), 
+       function(x) 
+       round(
+        HPDI(
+          unlist(c(extract(mod_sine_cos_stan)[x]), use.names = F), 0.95),
+        3),
+       mc.cores = 3)))
+
+
+# Table sine - cosine coefficients
+out %>%
+  kbl() %>%
+  kable_paper(full_width = F)
+
+
+
+
+# jpeg("Traceplots_sine_cosine_model_alpha.jpeg", width = 1100, height = 1000)
+traceplot(mod_sine_cos_stan, pars="alpha") +
+  
+  theme(legend.title = element_text(size = 24),
+        legend.text = element_text( size = 20), 
+        axis.text.x = element_text(size=20), 
+        axis.text.y = element_text(size=20),
+        axis.title.y = element_text(size=34, margin = margin(t = 0, r = 15, b = 0, l = 0)),
+        axis.title.x = element_text(size=34, margin = margin(t = 15, r = 0, b = 0, l = 0)))
+# dev.off()
+
+
+# jpeg("Traceplots_sine_cosine_model_beta_sine.jpeg", width = 1100, height = 1000)
+traceplot(mod_sine_cos_stan, pars="beta_sine") +
+  
+  theme(legend.title = element_text(size = 24),
+        legend.text = element_text( size = 20), 
+        axis.text.x = element_text(size=20), 
+        axis.text.y = element_text(size=20),
+        axis.title.y = element_text(size=34, margin = margin(t = 0, r = 15, b = 0, l = 0)),
+        axis.title.x = element_text(size=34, margin = margin(t = 15, r = 0, b = 0, l = 0)))
+# dev.off()
+
+
+# jpeg("Traceplots_sine_cosine_model_beta_cosine.jpeg", width = 1100, height = 1000)
+traceplot(mod_sine_cos_stan, pars="beta_cosine") +
+  
+  theme(legend.title = element_text(size = 24),
+        legend.text = element_text( size = 20), 
+        axis.text.x = element_text(size=20), 
+        axis.text.y = element_text(size=20),
+        axis.title.y = element_text(size=34, margin = margin(t = 0, r = 15, b = 0, l = 0)),
+        axis.title.x = element_text(size=34, margin = margin(t = 15, r = 0, b = 0, l = 0)))
+# dev.off()
+```
+
+Fixed effects only
+
+```{r supporting information 1 fixed effects model, message=FALSE, warning=FALSE}
+
+# jpeg("Traceplots_repro_periods_model_alpha.jpeg", width = 1100, height = 1000)
+traceplot(mod_fixed_stan, pars="alpha") +
+  
+  theme(legend.title = element_text(size = 24),
+        legend.text = element_text( size = 20), 
+        axis.text.x = element_text(size=20), 
+        axis.text.y = element_text(size=20),
+        axis.title.y = element_text(size=34, margin = margin(t = 0, r = 15, b = 0, l = 0)),
+        axis.title.x = element_text(size=34, margin = margin(t = 15, r = 0, b = 0, l = 0)))
+# dev.off()
+
+
+# jpeg("Traceplots_repro_periods_model_beta_wean.jpeg", width = 1100, height = 1000)
+traceplot(mod_fixed_stan, pars="beta_wean") +
+  
+  theme(legend.title = element_text(size = 24),
+        legend.text = element_text( size = 20), 
+        axis.text.x = element_text(size=20), 
+        axis.text.y = element_text(size=20),
+        axis.title.y = element_text(size=34, margin = margin(t = 0, r = 15, b = 0, l = 0)),
+        axis.title.x = element_text(size=34, margin = margin(t = 15, r = 0, b = 0, l = 0)))
+# dev.off()
+
+
+
+# jpeg("Traceplots_repro_periods_model_beta_lact.jpeg", width = 1100, height = 1000)
+traceplot(mod_fixed_stan, pars="beta_lact") +
+  
+  theme(legend.title = element_text(size = 24),
+        legend.text = element_text( size = 20), 
+        axis.text.x = element_text(size=20), 
+        axis.text.y = element_text(size=20),
+        axis.title.y = element_text(size=34, margin = margin(t = 0, r = 15, b = 0, l = 0)),
+        axis.title.x = element_text(size=34, margin = margin(t = 15, r = 0, b = 0, l = 0)))
+# dev.off()
+
+```
+
+Hierarchical model
+
+```{r supporting information 1 hierarachical effects model, message=FALSE, warning=FALSE}
+
+
+
+# repro periods traceplots
+
+# jpeg("traceplots_hierarchical_repro_periods.jpeg", width = 1500, height = 500)
+par(mfrow=c(3,1))
+
+traceplot(mod_hierarchical_stan, pars=paste0("beta_repro[", c(1:3), "]")) +
+  
+  theme(legend.title = element_text(size = 24), #axis.text.x.top = element_text(size = 24),
+        legend.text = element_text(size = 20), 
+        axis.text.x = element_text(size=16), 
+        axis.text.y = element_text(size=16),
+        axis.title.y = element_text(size=34, margin = margin(t = 0, r = 10, b = 0, l = 0)),
+        axis.title.x = element_text(size=34, margin = margin(t = 10, r = 0, b = 0, l = 0)))
+
+# dev.off()
+
+
+
+
+
+#month traceplots
+
+# jpeg("traceplots_hierarchical_months.jpeg", width = 1500, height = 1000)
+par(mfrow=c(4,3))
+
+traceplot(mod_hierarchical_stan, pars=paste0("beta_month[", c(1:12), "]")) +
+  
+  theme(legend.title = element_text(size = 24),
+        legend.text = element_text(size = 20), 
+        axis.text.x = element_text(size=16), 
+        axis.text.y = element_text(size=16),
+        axis.title.y = element_text(size=34, margin = margin(t = 0, r = 10, b = 0, l = 0)),
+        axis.title.x = element_text(size=34, margin = margin(t = 10, r = 0, b = 0, l = 0)),
+        plot.title = element_text(size=30))
+
+# dev.off()
+
+
+
+
+# sigma repro traceplots
+
+# jpeg("traceplots_hierarchical_sigma_repro.jpeg", width = 1500, height = 1000)
+par(mfrow=c(1,1))
+
+traceplot(mod_hierarchical_stan, pars="sigma_repro") +
+  
+  theme(legend.title = element_text(size = 30),
+        legend.text = element_text( size = 24), 
+        axis.text.x = element_text(size=25), 
+        axis.text.y = element_text(size=25),
+        axis.title.y = element_text(size=34, margin = margin(t = 0, r = 15, b = 0, l = 0)),
+        axis.title.x = element_text(size=34, margin = margin(t = 15, r = 0, b = 0, l = 0)))
+
+# dev.off()
+
+
+
+
+# sigma month traceplots
+
+# jpeg("traceplots_hierarchial_sigma_month.jpeg", width = 1500, height = 1000)
+par(mfrow=c(1,1))
+
+traceplot(mod_hierarchical_stan, pars="sigma_month") +
+  
+  theme(legend.title = element_text(size = 30),
+        legend.text = element_text( size = 24), 
+        axis.text.x = element_text(size=25), 
+        axis.text.y = element_text(size=25),
+        axis.title.y = element_text(size=34, margin = margin(t = 0, r = 15, b = 0, l = 0)),
+        axis.title.x = element_text(size=34, margin = margin(t = 15, r = 0, b = 0, l = 0)))
+
+# dev.off()
 
 ```
 
 
+##Supporting Information 2
+
+Summary of the Posterior Probability Distributions of the hierarchical model parameters.
+
+```{r supporting information 3.1,,message=FALSE, warning=FALSE}
+
+# Summary of the Posterior Probability Distributions of the hierarchical model parameters.
+
+out=
+cbind(
+
+round(
+  # summary mean sd of coeffiecients
+  summary(mod_hierarchical_stan, pars = c("beta_repro",
+                                        "beta_month",
+                                        "sigma_repro",
+                                        "sigma_month"))$summary, 3)[,c("mean", "sd")]
+
+,
+
+#HPDI coefficients
+
+rbind(
+do.call(rbind,
+mclapply(c("beta_repro", "beta_month"),
+function(x)         
+t(round(
+  apply(extract(mod_hierarchical_stan)[x][[1]], 
+        MARGIN = 2, 
+        function(y) HPDI(y, 0.95)),3)), mc.cores = 3)),
+
+round(HPDI(c(extract(mod_hierarchical_stan)["sigma_repro"][[1]]), 0.95),3),
+
+round(HPDI(c(extract(mod_hierarchical_stan)["sigma_month"][[1]]), 0.95),3)))
 
 
-
-
-
-# adding the date of the year the samples were taken
-nDigits <- function(x) nchar( trunc( abs(x) ) )
-
-
-# files.temp=list.files("Google Drive File Stream/My Drive/UC Davis/PhD_Project/Bats/Chapter 3/Tanzania/")[
-#   grep(x=list.files("Google Drive File Stream/My Drive/UC Davis/PhD_Project/Bats/Chapter 3/Tanzania/"), 
-#        pattern="AnimalSpecimenTemplate_P2_v7")][-2]
-# 
-# files.temp=files.temp[sapply(month.name, function(x) grep(pattern = x, files.temp))]
-# 
-# 
-# temp.dir="Google Drive File Stream/My Drive/UC Davis/PhD_Project/Bats/Chapter 3/Tanzania/"
-# 
-# tz.dat$date<-NA
-# 
-# tz.dat$date<- unlist(
-#   sapply(month.name, function(x){
-#     rep(  
-#       yday(
-#         
-#         paste0(
-#           substr(strsplit(read.xlsx(paste0(temp.dir, files.temp[grep(pattern = x, files.temp)]), sheet = 2, startRow = 4)[,1][1], "-")[[1]][3], 1, 4), "-",
-#           
-#           ifelse(
-#             nDigits(
-#               which(month.abb==substr(strsplit(read.xlsx(paste0(temp.dir, files.temp[grep(pattern = x, files.temp)]), sheet = 2, startRow = 4)[,1][1], "-")[[1]][3], 5, 7)))==1, 
-#             paste0("0", as.character(which(month.abb==substr(strsplit(read.xlsx(paste0(temp.dir, files.temp[grep(pattern = x, files.temp)]), sheet = 2, startRow = 4)[,1][1], "-")[[1]][3], 5, 7)))),
-#             as.character(which(month.abb==substr(strsplit(read.xlsx(paste0(temp.dir, files.temp[grep(pattern = x, files.temp)]), sheet = 2, startRow = 4)[,1][1], "-")[[1]][3], 5, 7)))), "-",
-#           
-#           substr(strsplit(read.xlsx(paste0(temp.dir, files.temp[grep(pattern = x, files.temp)]), sheet = 2, startRow = 4)[,1][1], "-")[[1]][3], 8, 9))
-#       ),
-#       
-#       nrow(tz.dat[tz.dat$month==x,]))}))
-# 
-# N<-nrow(tz.dat)
-# y<-tz.dat$pos
-# day_over_year<-tz.dat$date/365
-# 
-# 
-# data=list(N=N, 
-#           y=y,
-#           day_over_year=day_over_year)
-# 
-# 
-# mod1_stan <- stan(model_code = modelstring,  
-#                   data = data, control = list(adapt_delta=0.999, max_treedepth =17),
-#                   cores=4, chains=4, warmup = 5000, iter = 10000, thin = 5)
-# 
-# saveRDS(mod1_stan, "/Volumes/GoogleDrive/My Drive/UC Davis/PhD_Project/Bats/Chapter 3/Paper/Frontiers in Ecology and Evolution/model_sine_cosine.RDS")
+# Table hierarchical coefficients
+out %>%
+  kbl() %>%
+  kable_paper(full_width = F)
 
 
 ```
+
+
+Posterior probability distributions of the odds ratios of coronavirus shedding in E. helvum when comparing month m within reproductive period r and month m’ within reproductive period r’. The darkest blue shows the density within the 95% Highest Posterior Density Interval. The vertical lines show the odds ratio with value 1.
+
+
+```{r supporting information 3.2,,message=FALSE, warning=FALSE}
+
+
+# Posterior probability distributions of the odds ratios of coronavirus shedding in E. helvum when comparing month m within reproductive period r and month m’ within reproductive period r’. The darkest blue shows the density within the 95% Highest Posterior Density Interval. The vertical lines show the odds ratio with value 1.
+
+
+temp=rstan::extract(mod_hierarchical_stan)
+
+
+
+# Weaning versus rest of the year
+
+wean.vs.rest.year=lapply(c(9,10), function(x) exp(temp$beta_0jk[,x]-temp$beta_0jk[,1]))
+
+ap.vs.au=wean.vs.rest.year[[1]]
+
+may.vs.au=wean.vs.rest.year[[2]]
+
+
+
+# Lactation versus rest of the year
+
+lact.versus.rest.year=lapply(c(6,7), function(x) exp(temp$beta_0jk[,x]-temp$beta_0jk[,1]))
+
+jan.vs.au=lact.versus.rest.year[[1]]
+
+feb.vs.au=lact.versus.rest.year[[2]]
+
+
+
+# Weaning versus lactation
+
+wean.versus.lact=lapply(c(9,10), function(x) exp(temp$beta_0jk[,x]-temp$beta_0jk[,7]))
+
+ap.vs.feb=wean.versus.lact[[1]]
+
+may.vs.feb=wean.versus.lact[[2]]
+
+
+
+
+#Plot
+
+densities=list(ap.vs.au, may.vs.au, jan.vs.au, feb.vs.au, ap.vs.feb, may.vs.feb)
+
+titles=c("April vs Aug\nWeaning vs Rest of the year", "May vs Aug\nWeaning vs Rest of the year",
+         "Jan vs Aug\nLactation vs Rest of the year", "Feb vs Aug\nLactation vs Rest of the year",
+         "April vs Feb\nWeaning vs Lactation", "May vs Feb\nWeaning vs Lactation")
+
+out=vector(mode = "list", length = length(titles))
+
+for(i in 1:length(titles)){
+
+g <- ggplot()
+g <- g + geom_density(data=data.frame(value=densities[[i]]), aes(value), color=NA, fill="lightblue")
+
+#building the data for the HPDI density
+pr <- ggplot_build(g)
+
+# subset the values within the HPDI
+test=pr$data[[1]] %>% filter(x > hdi(densities[[i]], .width = .95)[1] & 
+                             x < hdi(densities[[i]], .width = .95)[2])
+
+# Plots
+g =g + geom_ribbon(data = test, aes(x=x, ymin=0, ymax=y), inherit.aes=F,  fill="blue", alpha=0.3) +
+  
+  theme(axis.text.x = element_text(size=14), 
+        axis.text.y = element_text(size=14),
+        axis.title.y = element_text(size=18, margin = margin(t = 0, r = 15, b = 0, l = 0)),
+        axis.title.x = element_text(size=18, margin = margin(t = 15, r = 0, b = 0, l = 0)),
+        plot.title = element_text(size=20, hjust = 0.5)) +
+  scale_x_continuous(name =" ", limits = c(-0.2,10)) +
+  scale_y_continuous(name =" ", limits = c(0,1.6)) +
+  ggtitle(titles[i]) +
+  geom_vline(xintercept = 1, lwd=2) +
+  theme(plot.margin = unit(c(0,0.1,0,0), "cm"))
+
+out[[i]]<-g}
+
+for(i in c(1,3,5)){
+  out[[i]]=out[[i]] + scale_y_continuous(name ="Density", limits = c(0,1.6))}
+
+for(i in c(5,6)){
+  out[[i]]=out[[i]] + scale_x_continuous(name ="Odds Ratio", limits = c(-0.2,10))}
+
+
+ready=grid.arrange(grobs = out, nrow=3, ncol=2)
+
+
+# ggsave(filename = "ods_ratios_hierarchical_model.png", 
+#        plot = ready, 
+#        device = "png", 
+#        width = (40/3)*2, 
+#        height = 12*3, 
+#        units = "cm")
+```
+
+# Posterior probability distributions of the reproductive period-level standard deviation (σR; pale red) and the month-level standard deviation (σM; pale green).
+
+```{r supporting information 3.3,,message=FALSE, warning=FALSE}
+
+
+# Posterior probability distributions of the reproductive period-level standard deviation (σR; pale red) and the month-level standard deviation (σM; pale green).
+
+##plot
+
+sigma.repro=temp$sigma_repro
+
+sigma.month=temp$sigma_month
+
+x <- data.frame(reproductive_period=sigma.repro, month=sigma.month)
+
+data<- melt(x)
+
+ready=ggplot(data,aes(x=value, fill=variable)) + 
+  geom_density(alpha=0.25) +
+  scale_x_continuous(name ="Standard deviation", limits = c(-0.2,12))
+
+
+# ggsave(filename = "standard_deviations_hierarchical_model.png", 
+#        plot = ready, 
+#        device = "png", 
+#        width = 25, 
+#        height = 12, 
+#        units = "cm")
+
+```
+
+##Supporting Information 3
+
+```{r supporting information 3,,message=FALSE, warning=FALSE}
+
+
+# Spearman
+SpearmanRho(tapply(tz.dat$pos, list(tz.dat$month), mean),
+            tapply(tz.dat$precip.month, list(tz.dat$month), unique),
+            conf.level = 0.95)
+
+plot( tapply(tz.dat$precip.month, list(tz.dat$month), unique), 
+      tapply(tz.dat$pos, list(tz.dat$month), mean),
+      main="Morogoro, lag 0",
+      ylab="Monthly CoV detection",
+      xlab="Precipitation")
+
+
+#Kendall
+KendallTauA(tapply(tz.dat$pos, list(tz.dat$month), mean),
+            tapply(tz.dat$pop, list(tz.dat$month), unique),
+            conf.level = 0.95)
+
+# at the same time in Ghana
+
+SpearmanRho(tapply(gh.dat$pos, list(gh.dat$month), mean),
+            tapply(gh.dat$precip.month, list(gh.dat$month), unique),
+            conf.level = 0.95)
+
+plot(tapply(gh.dat$precip.month, list(gh.dat$month), unique),
+     tapply(gh.dat$pos, list(gh.dat$month), mean),
+     main="Accra, lag 0",
+     ylab="Monthly CoV detection",
+     xlab="Precipitation")
+
+
+#Kendall
+KendallTauA(tapply(gh.dat$pos, list(gh.dat$month), mean),
+            tapply(gh.dat$precip.month, list(gh.dat$month), unique),
+            conf.level = 0.95)
+
+
+# between CoV detection and precipitation one month before  in Tanzania
+
+
+# Spearman
+SpearmanRho(tapply(tz.dat$pos, list(tz.dat$month), mean)[2:12],
+            tapply(tz.dat$precip.month, list(tz.dat$month), unique)[1:11],
+            conf.level = 0.95)
+
+plot(tapply(tz.dat$precip.month, list(tz.dat$month), unique)[1:11],
+     tapply(tz.dat$pos, list(tz.dat$month), mean)[2:12], 
+     main="Morogoro, lag 1",
+     ylab="Monthly CoV detection",
+     xlab="Precipitation")
+
+
+#Kendall
+KendallTauA(tapply(tz.dat$pos, list(tz.dat$month), mean)[2:12],
+            tapply(tz.dat$precip.month, list(tz.dat$month), unique)[1:11],
+            conf.level = 0.95)
+
+
+# between CoV detection and precipitation one month before  in Ghana
+
+SpearmanRho(tapply(gh.dat$pos, list(gh.dat$month), mean)[2:12],
+            tapply(gh.dat$precip.month, list(gh.dat$month), unique)[1:11],
+            conf.level = 0.95)
+
+plot(tapply(gh.dat$precip.month, list(gh.dat$month), unique)[1:11],
+     tapply(gh.dat$pos, list(gh.dat$month), mean)[2:12],
+     main="Accra, lag 1",
+     ylab="Monthly CoV detection",
+     xlab="Precipitation")
+
+
+#Kendall
+KendallTauA(tapply(gh.dat$pos, list(gh.dat$month), mean)[2:12],
+            tapply(gh.dat$precip.month, list(gh.dat$month), unique)[1:11],
+            conf.level = 0.95)
+
+
+# between CoV detection and precipitation two months before in Tanzania
+
+# Spearman
+SpearmanRho(tapply(tz.dat$pos, list(tz.dat$month), mean)[3:12],
+            tapply(tz.dat$precip.month, list(tz.dat$month), unique)[1:10],
+            conf.level = 0.95)
+
+plot(tapply(tz.dat$precip.month, list(tz.dat$month), unique)[1:10],
+     tapply(tz.dat$pos, list(tz.dat$month), mean)[3:12],
+     main="Morogoro, lag 2",
+     ylab="Monthly CoV detection",
+     xlab="Precipitation")
+     
+
+
+#Kendall
+KendallTauA(tapply(tz.dat$pos, list(tz.dat$month), mean)[3:12],
+            tapply(tz.dat$pop, list(tz.dat$month), unique)[1:10],
+            conf.level = 0.95)
+
+
+# between CoV detection and precipitation two months before in Ghana
+
+SpearmanRho(tapply(gh.dat$pos, list(gh.dat$month), mean)[3:12],
+            tapply(gh.dat$precip.month, list(gh.dat$month), unique)[1:10],
+            conf.level = 0.95)
+
+plot( tapply(gh.dat$precip.month, list(gh.dat$month), unique)[1:10],
+      tapply(gh.dat$pos, list(gh.dat$month), mean)[3:12],
+      main="Accra, lag 2",
+      ylab="Monthly CoV detection",
+      xlab="Precipitation")
+
+
+#Kendall
+KendallTauA(tapply(gh.dat$pos, list(gh.dat$month), mean)[3:12],
+            tapply(gh.dat$precip.month, list(gh.dat$month), unique)[1:10],
+            conf.level = 0.95)
+
+
+
+SpearmanRho(tapply(gh.dat$pos, list(gh.dat$month), mean)[3:12],
+            tapply(gh.dat$pop, list(gh.dat$month), unique)[1:10],
+            conf.level = 0.95)
+
+plot( tapply(gh.dat$pop, list(gh.dat$month), unique)[1:10],
+      tapply(gh.dat$pos, list(gh.dat$month), mean)[3:12])
+
+
+
+```
+
  
