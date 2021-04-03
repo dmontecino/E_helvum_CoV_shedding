@@ -38,9 +38,11 @@ library(grid)
 library(kableExtra)
 ```
 
-## Methods Figure 1
+# METHODS
 
-```{r figure1, fig.cap = "Figure 4. Locations of the studied E. helvum roost in Africa (right). The frames at the left show some of the trees occupied at the 37 Military Hospital (top) and at the Kikundi Market (bottom).",message=FALSE, warning=FALSE}
+Fig 1. Location of the studied E. helvum roost in Africa (right). The frames at the left show some of the trees occupied at the 37 Military Hospital (top) and at the Kikundi Market (bottom).
+
+```{r fig 1 ,message=FALSE, warning=FALSE}
 
 world <- ne_countries(scale = "large", returnclass = "sf")
 
@@ -98,7 +100,127 @@ accra.morogoro<-world.cities%>%
 
 ```
 
-## Load data
+
+### Assessing seasonality
+
+The following R code correspond to the STAN script for the intercept-only model.
+
+```{r intercept model,message=FALSE, warning=FALSE}
+
+modelstring.int="
+data{
+int N; // number of observations. It means it is an integer with nodecimal points
+int y[N]; //outcome 
+}
+
+ parameters {
+   // Define parameters to estimate
+   real alpha;
+ }   
+
+model {
+  real mu[N];
+  
+  // Priors
+  alpha ~ normal(0, 1);
+ 
+  // model
+  for (i in 1:N) {
+    mu[i] = alpha;
+  }
+
+
+  // Likelihood part of Bayesian inference
+  for (i in 1:N) {
+    y[i] ~ bernoulli_logit(mu[i]);
+  }
+}
+
+generated quantities {
+int y_rep[N];
+vector[N] log_lik; 
+real dev;
+dev = 0;
+
+
+for (i in 1:N){ 
+
+real mu;
+mu = alpha;
+
+dev = dev + (-2)*bernoulli_logit_lpmf( y[i] | mu);
+log_lik[i] = bernoulli_logit_lpmf(y[i] | mu);
+
+y_rep[i] = bernoulli_logit_rng(alpha);
+
+}
+
+}
+"
+```
+
+The following R code correspond to the STAN script for the sine - cosine model. 
+
+```{r sine cosine model,message=FALSE, warning=FALSE}
+
+modelstring.sine.cosine="
+data{
+int N; // number of observations. It means it is an integer with nodecimal points
+int y[N]; //outcome 
+real day_over_year[N];
+}
+
+ parameters {
+   // Define parameters to estimate
+   real alpha;
+   real beta_sine;
+   real beta_cosine;
+ }   
+
+model {
+  real mu[N];
+  
+  // Priors
+  alpha ~ normal(0, 1);
+  beta_sine ~ normal(0, 1);
+  beta_cosine ~ normal(0, 1);
+ 
+  // model
+  for (i in 1:N) {
+    mu[i] = alpha + beta_cosine* cos(2*pi()*day_over_year[i]) + beta_sine* sin(2*pi()*day_over_year[i]);
+  }
+
+
+  // Likelihood part of Bayesian inference
+  for (i in 1:N) {
+    y[i] ~ bernoulli_logit(mu[i]);
+  }
+}
+
+generated quantities {
+int y_rep[N];
+vector[N] log_lik; 
+real dev;
+dev = 0;
+
+
+for (i in 1:N){ 
+
+real mu;
+mu = alpha + beta_cosine* cos(2*pi()*day_over_year[i]) + beta_sine* sin(2*pi()*day_over_year[i]);
+
+dev = dev + (-2)*bernoulli_logit_lpmf( y[i] | mu);
+log_lik[i] = bernoulli_logit_lpmf(y[i] | mu);
+
+y_rep[i] = bernoulli_logit_rng(alpha + beta_cosine* cos(2*pi()*day_over_year[i]) + beta_sine* sin(2*pi()*day_over_year[i]));
+
+}
+
+}
+"
+```
+
+Load data
 
 ```{r load data plot,,message=FALSE, warning=FALSE}
 
@@ -107,11 +229,273 @@ gh.dat=read.csv("data_accra_roost_final.csv")
 
 ```
 
-## Descriptive Results
+### Run the models
 
-This is the data and script to create the figure showing the results of coronavirus shedding, bat population, and precipitation longitudinally.
+The intercept only model
 
-```{r descriptive data plot,,message=FALSE, warning=FALSE}
+```{r run intercept only model, message=FALSE, warning=FALSE, eval=FALSE}
+
+# Data
+N<-nrow(tz.dat)
+y<-tz.dat$pos
+
+data=list(N=N, y=y)
+
+# Intercpt Only Model
+
+mod_intercept_stan <- stan(model_code = modelstring.int,
+                  data = data, control = list(adapt_delta=0.999, max_treedepth =17),
+                  cores=4, chains=4, warmup = 5000, iter = 10000, thin = 5)
+
+saveRDS(mod_intercept_stan, "model_intercept.RDS")
+
+
+```
+
+
+The sine-cosine only model
+
+```{r run sine-cosine model, message=FALSE, warning=FALSE, eval=FALSE}
+
+
+N<-nrow(tz.dat)
+y<-tz.dat$pos
+day_over_year<-tz.dat$date/365
+
+
+data=list(N=N,
+          y=y,
+          day_over_year=day_over_year)
+
+
+mod_sine_cos_stan <- stan(model_code = modelstring.sine.cosine,
+                  data = data, control = list(adapt_delta=0.999, max_treedepth =17),
+                  cores=4, chains=4, warmup = 5000, iter = 10000, thin = 5)
+
+saveRDS(mod_sine_cos_stan, "model_sine_cosine.RDS")
+
+```
+
+
+### Assessing the association between reproductive season and coronavirus shedding
+
+The following R code correspond to the STAN script for the fixed effects model.
+
+```{r  fixed effects model, message=FALSE, warning=FALSE}
+
+# -----  Fixed effects model ----#
+
+modelstring_fixed=
+  "
+data {
+  int N;
+  int y[N];
+  int lact[N];
+  int wean[N];
+}
+
+parameters {
+  real alpha;
+  real beta_wean;
+  real beta_lact;
+  
+}
+
+model {
+   
+   for (i in 1:N){
+      
+      y[i] ~ bernoulli_logit(alpha + beta_wean*wean[i] + beta_lact*lact[i]);}
+  
+  alpha ~ normal( 0.0, 1);
+  beta_wean ~ normal( 0.0, 1);
+  beta_lact ~ normal( 0.0, 1);
+}
+
+generated quantities {
+int y_rep[N];
+
+for (i in 1:N){
+y_rep[i] = bernoulli_logit_rng(alpha + beta_wean*wean[i] + beta_lact*lact[i]);}
+
+}
+
+"
+
+```
+
+The following R code correspond to the STAN script for the hiearchical model.
+
+```{r  hierarchical model, message=FALSE, warning=FALSE}
+
+#----- Grouping factor per month and the months included ----- #
+# in reproductive period ------------------------------------- #
+
+modelstring_hierachical=
+  "
+data {
+  // Number of level-1 observations (an integer)
+  int<lower=0> N;
+  // Number of month clusters
+  int<lower=0> J;
+  // Number of repro clusters
+  int<lower=0> K;
+
+  //Outcome
+  int y[N];
+
+  // Cluster indexes
+  int<lower=1> index_repro_periods[J];
+  int<lower=1> index_months[N];
+  
+}
+
+parameters {
+  // Define parameters to estimate
+  
+  // Level-2 random effect
+  real beta_month[J];
+  real<lower=0> sigma_month;
+
+  // Level-3 random effect
+  real beta_repro[K];
+  real<lower=0> sigma_repro;
+}
+
+transformed parameters  {
+  // Varying intercepts
+  real beta_0jk[J];
+  real beta_0k[K];
+
+  // Individual mean
+  real p[N];
+
+  // Varying intercepts definition
+  
+  // Level-3 (10 level-3 random intercepts)
+  for (k in 1:K) {
+  beta_0k[k] =beta_repro[k]* sigma_repro;
+  }
+  
+  // Level-2 (100 level-2 random intercepts)
+  for (j in 1:J) {
+    beta_0jk[j] = beta_0k[index_repro_periods[j]] + beta_month[j] *sigma_month;
+  }
+  // Individual mean
+  for (i in 1:N) {
+    p[i] =beta_0jk[index_months[i]];
+  }
+}
+
+model {
+  // Prior part of Bayesian inference
+
+  // Random effects distribution
+  
+  beta_month ~ normal(0, 1);
+  beta_repro ~ normal(0, 1);
+  
+
+  sigma_month ~ cauchy(0,1) ;
+  sigma_repro ~ cauchy(0,1) ;
+
+  // Likelihood part of Bayesian inference
+  for (i in 1:N) {
+    y[i] ~ bernoulli_logit(p[i]);
+  }
+}
+
+
+generated quantities {
+
+int y_rep[N];
+vector[N] log_lik; 
+real dev;
+dev = 0;
+
+
+for (i in 1:N){ 
+
+real mu;
+mu = beta_0jk[index_months[i]];
+
+dev = dev + (-2)*bernoulli_logit_lpmf( y[i] | mu);
+log_lik[i] = bernoulli_logit_lpmf(y[i] | mu);
+
+y_rep[i] = bernoulli_logit_rng(p[i]);
+
+}
+
+}
+"
+```
+
+### Run the models 
+
+Run the fixed effects model
+
+```{r run fix effects model, message=FALSE, warning=FALSE, eval=FALSE}
+
+N<-nrow(tz.dat)
+y<-tz.dat$positive
+wean=ifelse(tz.dat$repro.per=="weaning",1,0)
+lact=ifelse(tz.dat$repro.per=="birth",1,0)
+
+data=list(N=N, 
+          y=y,
+          wean=wean,
+          lact=lact)
+
+
+mod_fixed_stan <- stan(model_code = modelstring_fixed,  
+                  data = data, control = list(adapt_delta=0.999, max_treedepth =17),
+                  cores=4, chains=4, warmup = 5000, iter = 10000, thin = 5)
+
+saveRDS(mod_fixed_stan, "model_repro_periods_only_fixed_effects.RDS")  
+
+
+
+
+```
+
+Run the hierarchical model
+
+```{r run hierarchical model, message=FALSE, warning=FALSE, eval=FALSE}
+
+N <- nrow(tz.dat)
+K <- length(unique(tz.dat$repro))
+J <- length(unique(tz.dat$month))
+y <- tz.dat$pos
+
+index_months <- as.integer(factor(tz.dat$month, levels = month.name[c(8:12,1:7)]))
+
+index_repro_periods=sapply(month.name[c(8:12,1:7)], function(x)
+  as.integer(factor(tz.dat$repro, levels = c("rest", "birth", "weaning")))[tz.dat$month==x][1])
+
+
+data=list(N=N, 
+          K=K,
+          J=J,
+          y=y,
+          index_repro_periods=index_repro_periods, 
+          index_months=index_months)
+
+
+mod_hierarchical_stan <- stan(model_code = modelstring_hierachical,  
+                      data = data, control = list(adapt_delta=0.999, max_treedepth =17),
+                      cores=4, chains=4, warmup = 5000, iter = 10000, thin = 5)
+
+
+saveRDS(mod_hierarchical_stan, "hierarchical_model.RDS")  
+
+```
+
+# RESULTS
+
+
+Fig 2. Eidolon helvum monthly abundance (green line), precipitation (blue line), and coronavirus shedding (red line) at the roost in Morogoro, Tanzania (left); and at the roost in Accra, Ghana (right). Color bands indicate the “lactation” (orange), “weaning” (purple), and “rest of the year” (blue) reproductive periods.
+
+```{r fig 1, message=FALSE, warning=FALSE}
 
 
 # periods, precipitaiton and roost size
@@ -404,413 +788,329 @@ ready=grid.arrange(grobs = list(precip.mor + theme(plot.margin = unit(c(0.2,0.2,
 
 ```
 
-## Assessing seasonality
+Proportion of positive feces in the “lactation”, “weaning”, and the “rest of the year” periods
 
-The following R code correspond to the STAN script for the intercept-only model.
+```{r prop pos feces, message=FALSE, warning=FALSE}
+tz.dat%>%group_by(repro.per)%>%dplyr::summarize(prop.feces.per.period=mean(positive))
+gh.dat%>%group_by(repro.per)%>%dplyr::summarize(prop.feces.per.period=mean(positive))
 
-```{r intercept model,message=FALSE, warning=FALSE}
+```
 
-modelstring.int="
-data{
-int N; // number of observations. It means it is an integer with nodecimal points
-int y[N]; //outcome 
-}
+Intercept versus Seasonal Model
 
- parameters {
-   // Define parameters to estimate
-   real alpha;
- }   
+```{r run sine-cosine model, message=FALSE, warning=FALSE, eval=T}
 
-model {
-  real mu[N];
-  
-  // Priors
-  alpha ~ normal(0, 1);
+mod_intercept_stan=readRDS("model_intercept.RDS")
+mod_sine_cos_stan=readRDS("model_sine_cosine.RDS")
+
+# loo intercept model
+
+log_lik = extract_log_lik(mod_intercept_stan, merge_chains = F, parameter_name = "log_lik")
+rel_n_eff = relative_eff(exp(log_lik))
+#m1.waic=waic(log_lik1) # 803.9
+loo.intercept.only=loo(log_lik, r_eff =rel_n_eff ) # 803.9
+
+# loo sine cosine model
+
+log_lik = extract_log_lik(mod_sine_cos_stan, merge_chains = F, parameter_name = "log_lik")
+rel_n_eff = relative_eff(exp(log_lik))
+#m1.waic=waic(log_lik1) # 803.9
+loo.sine.cosine=loo(log_lik, r_eff =rel_n_eff ) # 803.9
+
+# Table
+cbind(c("Intercept only", "Sine cosine"),
+rbind(round(loo.intercept.only$estimates["looic",],3),
+      round(loo.sine.cosine$estimates["looic",],3)))%>%
+  kbl%>%
+  kable_paper(full_width = F)
+```
+
+Table 1. The lower and upper endpoints of the 95% Highest Posterior Density Interval (HPDI) of the predicted 
+monthly proportion of Eidolon helvum shedding coronaviruses in Morogoro, Tanzania produced by a sine-cosine 
+model with a period of 12 months and a single annual maximum and minimum.
+
+```{r Table 1, message=FALSE, warning=FALSE, eval=T}
+
+
+#Table 1
+samples.per.month=table(tz.dat$month)
+
+month.index=as.numeric(factor(tz.dat$month, levels = month.name[c( 8:12,1:7)])) # August gets 1
+
+Month.prop.pred=   purrr::map(sort(unique(month.index)),
+                   function (x)
+                   extract(mod_sine_cos_stan)$y_rep%>%
+                   as_tibble()%>%
+                   select(which(month.index==x))%>%
+                   mutate(prop.pred = rowMeans(.))%>%
+                   select(prop.pred))
+
+Month.prop.pred.HPDI = purrr::map(Month.prop.pred,  
+                                  function(x) round(HPDI(x, 0.95),3))
+
+
+
+table1=data.frame(Month=month.name[c( 8:12,1:7)],
+                  Min.HPDI=do.call(rbind,Month.prop.pred.HPDI)[,1],
+                  Max.HPDI=do.call(rbind,Month.prop.pred.HPDI)[,2])
+                  
  
-  // model
-  for (i in 1:N) {
-    mu[i] = alpha;
-  }
+table1%>%kbl()%>%kable_paper(full_width = F)
 
-
-  // Likelihood part of Bayesian inference
-  for (i in 1:N) {
-    y[i] ~ bernoulli_logit(mu[i]);
-  }
-}
-
-generated quantities {
-int y_rep[N];
-vector[N] log_lik; 
-real dev;
-dev = 0;
-
-
-for (i in 1:N){ 
-
-real mu;
-mu = alpha;
-
-dev = dev + (-2)*bernoulli_logit_lpmf( y[i] | mu);
-log_lik[i] = bernoulli_logit_lpmf(y[i] | mu);
-
-y_rep[i] = bernoulli_logit_rng(alpha);
-
-}
-
-}
-"
-```
-
-The following R code correspond to the STAN script for the sine - cosine model. 
-
-```{r sine cosine model,message=FALSE, warning=FALSE}
-
-modelstring.sine.cosine="
-data{
-int N; // number of observations. It means it is an integer with nodecimal points
-int y[N]; //outcome 
-real day_over_year[N];
-}
-
- parameters {
-   // Define parameters to estimate
-   real alpha;
-   real beta_sine;
-   real beta_cosine;
- }   
-
-model {
-  real mu[N];
-  
-  // Priors
-  alpha ~ normal(0, 1);
-  beta_sine ~ normal(0, 1);
-  beta_cosine ~ normal(0, 1);
- 
-  // model
-  for (i in 1:N) {
-    mu[i] = alpha + beta_cosine* cos(2*pi()*day_over_year[i]) + beta_sine* sin(2*pi()*day_over_year[i]);
-  }
-
-
-  // Likelihood part of Bayesian inference
-  for (i in 1:N) {
-    y[i] ~ bernoulli_logit(mu[i]);
-  }
-}
-
-generated quantities {
-int y_rep[N];
-vector[N] log_lik; 
-real dev;
-dev = 0;
-
-
-for (i in 1:N){ 
-
-real mu;
-mu = alpha + beta_cosine* cos(2*pi()*day_over_year[i]) + beta_sine* sin(2*pi()*day_over_year[i]);
-
-dev = dev + (-2)*bernoulli_logit_lpmf( y[i] | mu);
-log_lik[i] = bernoulli_logit_lpmf(y[i] | mu);
-
-y_rep[i] = bernoulli_logit_rng(alpha + beta_cosine* cos(2*pi()*day_over_year[i]) + beta_sine* sin(2*pi()*day_over_year[i]));
-
-}
-
-}
-"
-```
-
-Run the intercept only model
-
-```{r run intercept only model, message=FALSE, warning=FALSE, eval=FALSE}
-
-# Data
-N<-nrow(tz.dat)
-y<-tz.dat$pos
-
-data=list(N=N, y=y)
-
-# Intercpt Only Model
-
-mod_intercept_stan <- stan(model_code = modelstring.int,
-                  data = data, control = list(adapt_delta=0.999, max_treedepth =17),
-                  cores=4, chains=4, warmup = 5000, iter = 10000, thin = 5)
-
-saveRDS(mod_intercept_stan, "model_intercept.RDS")
 
 
 ```
 
+Posterior Probability Distributions (PProD) of the fixed effects model parameters. Table 2. Summary of the Posterior Probability Distributions of the “rest of the year” reproductive period parameter, the “weaning” reproductive period parameter, and the “lactation” reproductive period parameter. 
 
-Run the sine-cosine only model
+```{r Table 2, message=FALSE, warning=FALSE}
 
-```{r run sine-cosine model, message=FALSE, warning=FALSE, eval=FALSE}
-
-
-N<-nrow(tz.dat)
-y<-tz.dat$pos
-day_over_year<-tz.dat$date/365
+mod_fixed_stan = readRDS("model_repro_periods_only_fixed_effects.RDS")  
 
 
-data=list(N=N,
-          y=y,
-          day_over_year=day_over_year)
+# Summary of the Posterior Probability Distributions of the sine-cosine logistic model parameters.
+
+out=
+cbind(
+round(
+  # summary mean sd of coeffiecients
+  summary(mod_fixed_stan, pars = c("alpha",
+                                        "beta_wean",
+                                        "beta_lact"))$summary, 3)[,c("mean", "sd")],
+
+#HPDI coefficients
+do.call(rbind,
+mclapply(c("alpha", "beta_wean", "beta_lact"), 
+       function(x) 
+       round(
+        HPDI(
+          unlist(c(extract(mod_fixed_stan)[x]), use.names = F), 0.95),
+        3),
+       mc.cores = 3)))
+
+#Table
+out %>%
+  kbl() %>%
+  kable_paper(full_width = F)
 
 
-mod_sine_cos_stan <- stan(model_code = modelstring.sine.cosine,
-                  data = data, control = list(adapt_delta=0.999, max_treedepth =17),
-                  cores=4, chains=4, warmup = 5000, iter = 10000, thin = 5)
+```
 
-saveRDS(mod_sine_cos_stan, "model_sine_cosine.RDS")
+Odds ratios fixed effects model
+
+```{r supporting OR fixed effects, message=FALSE, warning=FALSE}
+
+OR.out=
+
+rbind(
+
+#weaning versus rest of the year
+
+
+exp(
+HPDI(c(extract(mod_fixed_stan)["beta_wean"][[1]]),
+0.95)),
+
+#lactation versus rest of the year
+
+
+exp(
+HPDI(c(extract(mod_fixed_stan)["beta_lact"][[1]]),
+0.95)),
+
+#weaning versus lactation
+
+exp(
+HPDI(c(extract(mod_fixed_stan)["beta_wean"][[1]] - extract(mod_fixed_stan)["beta_lact"][[1]]),
+0.95)))
+
+rownames(OR.out) = c("Weaning versus rest of the year",
+                  "Lactation versus rest of the year",
+                  "Weaning versus lactation")
+
+#Table
+OR.out %>%
+  kbl() %>%
+  kable_paper(full_width = F)
 
 ```
 
 
-## Assessing association between reproductive season and coronavirus shedding
+Figure 2. The Posterior Probability Distributions (darkblue) and the corresponding 95% Highest Posterior Density Interval (lightblue) of the odds ratio for coronavirus shedding by Eidolon helvum in the roost at Morogoro Tanzania during the “weaning” period versus the “rest of the year”, during the “weaning” period versus the “lactation” period, and during the “lactation” period versus the “rest of the year”. The vertical black line indicates a neutral odds ratio with value of one.
 
-The following R code correspond to the STAN script for the fixed effects model.
+```{r Figure 2, message=FALSE, warning=FALSE}
 
-```{r  fixed effects model, message=FALSE, warning=FALSE}
+dens.data=data.frame(wean.vs.rest=c(extract(mod_fixed_stan)["beta_wean"][[1]]),
+                     lact.vs.rest=c(extract(mod_fixed_stan)["beta_lact"][[1]]),
+                     wean.vs.lact=c(extract(mod_fixed_stan)["beta_wean"][[1]] - extract(mod_fixed_stan)["beta_lact"][[1]]))
 
-# -----  Fixed effects model ----#
+# Wean versus rest of the year plot
 
-modelstring_fixed=
-  "
-data {
-  int N;
-  int y[N];
-  int lact[N];
-  int wean[N];
-}
+dens <- density(exp(dens.data$wean.vs.rest))
 
-parameters {
-  real alpha;
-  real beta_wean;
-  real beta_lact;
-  
-}
+data.all.dens=tibble(x = dens$x, y = dens$y)
 
-model {
-   
-   for (i in 1:N){
-      
-      y[i] ~ bernoulli_logit(alpha + beta_wean*wean[i] + beta_lact*lact[i]);}
-  
-  alpha ~ normal( 0.0, 1);
-  beta_wean ~ normal( 0.0, 1);
-  beta_lact ~ normal( 0.0, 1);
-}
-
-generated quantities {
-int y_rep[N];
-
-for (i in 1:N){
-y_rep[i] = bernoulli_logit_rng(alpha + beta_wean*wean[i] + beta_lact*lact[i]);}
-
-}
-
-"
-
-```
-
-The following R code correspond to the STAN script for the hiearchical model.
-
-```{r  hierarchical model, message=FALSE, warning=FALSE}
-
-#----- Grouping factor per month and the months included ----- #
-# in reproductive period ------------------------------------- #
-
-modelstring_hierachical=
-  "
-data {
-  // Number of level-1 observations (an integer)
-  int<lower=0> N;
-  // Number of month clusters
-  int<lower=0> J;
-  // Number of repro clusters
-  int<lower=0> K;
-
-  //Outcome
-  int y[N];
-
-  // Cluster indexes
-  int<lower=1> index_repro_periods[J];
-  int<lower=1> index_months[N];
-  
-}
-
-parameters {
-  // Define parameters to estimate
-  
-  // Level-2 random effect
-  real beta_month[J];
-  real<lower=0> sigma_month;
-
-  // Level-3 random effect
-  real beta_repro[K];
-  real<lower=0> sigma_repro;
-}
-
-transformed parameters  {
-  // Varying intercepts
-  real beta_0jk[J];
-  real beta_0k[K];
-
-  // Individual mean
-  real p[N];
-
-  // Varying intercepts definition
-  
-  // Level-3 (10 level-3 random intercepts)
-  for (k in 1:K) {
-  beta_0k[k] =beta_repro[k]* sigma_repro;
-  }
-  
-  // Level-2 (100 level-2 random intercepts)
-  for (j in 1:J) {
-    beta_0jk[j] = beta_0k[index_repro_periods[j]] + beta_month[j] *sigma_month;
-  }
-  // Individual mean
-  for (i in 1:N) {
-    p[i] =beta_0jk[index_months[i]];
-  }
-}
-
-model {
-  // Prior part of Bayesian inference
-
-  // Random effects distribution
-  
-  beta_month ~ normal(0, 1);
-  beta_repro ~ normal(0, 1);
-  
-
-  sigma_month ~ cauchy(0,1) ;
-  sigma_repro ~ cauchy(0,1) ;
-
-  // Likelihood part of Bayesian inference
-  for (i in 1:N) {
-    y[i] ~ bernoulli_logit(p[i]);
-  }
-}
+data.hpdi <- tibble(x = dens$x, y = dens$y) %>% 
+    mutate(variable = case_when(
+      (x >= exp(hdi(dens.data$wean.vs.rest, .width = .95)[1]) &
+       x <= exp(hdi(dens.data$wean.vs.rest, .width = .95)[2])) ~ "On",
+      (x < exp(hdi(dens.data$wean.vs.rest, .width = .95)[1]) &
+       x > exp(hdi(dens.data$wean.vs.rest, .width = .95)[2])) ~ "Off",
+      TRUE ~ NA_character_))
 
 
-generated quantities {
-
-int y_rep[N];
-vector[N] log_lik; 
-real dev;
-dev = 0;
-
-
-for (i in 1:N){ 
-
-real mu;
-mu = beta_0jk[index_months[i]];
-
-dev = dev + (-2)*bernoulli_logit_lpmf( y[i] | mu);
-log_lik[i] = bernoulli_logit_lpmf(y[i] | mu);
-
-y_rep[i] = bernoulli_logit_rng(p[i]);
-
-}
-
-}
-"
-```
-
-Run the fixed effects model
-
-```{r run fix effects model, message=FALSE, warning=FALSE, eval=FALSE}
-
-N<-nrow(tz.dat)
-y<-tz.dat$positive
-wean=ifelse(tz.dat$repro.per=="weaning",1,0)
-lact=ifelse(tz.dat$repro.per=="birth",1,0)
-
-data=list(N=N, 
-          y=y,
-          wean=wean,
-          lact=lact)
+wean.vs.rest=
+  ggplot(data.all.dens, aes(x, y)) + geom_line() +
+  geom_area(data = filter(data.all.dens), fill = 'lightblue') +
+  geom_area(data = filter(data.hpdi, variable == 'On'), fill = 'cornflowerblue') + 
+  theme(axis.text.x = element_text(size=14), 
+        axis.text.y = element_text(size=14),
+        axis.title.y = element_text(size=18, margin = margin(t = 0, r = 15, b = 0, l = 0)),
+        axis.title.x = element_text(size=18, margin = margin(t = 15, r = 0, b = 0, l = 0)),
+        plot.title = element_text(size=20, hjust = 0.5)) +
+  scale_x_continuous(name ="Odds ratio", limits = c(-0.2,6)) +
+  scale_y_continuous(name ="Density", limits = c(0,1.6)) +
+  ggtitle("Weaning versus Rest of the year") +
+  geom_vline(xintercept = 1) 
 
 
-mod_fixed_stan <- stan(model_code = modelstring_fixed,  
-                  data = data, control = list(adapt_delta=0.999, max_treedepth =17),
-                  cores=4, chains=4, warmup = 5000, iter = 10000, thin = 5)
 
-saveRDS(mod_fixed_stan, "model_repro_periods_only_fixed_effects.RDS")  
+# Wean versus lactation
+
+dens <- density(exp(dens.data$wean.vs.lact))
+
+data.all.dens=tibble(x = dens$x, y = dens$y)
+
+data.hpdi <- tibble(x = dens$x, y = dens$y) %>% 
+    mutate(variable = case_when(
+      (x >= exp(hdi(dens.data$wean.vs.lact, .width = .95)[1]) &
+       x <= exp(hdi(dens.data$wean.vs.lact, .width = .95)[2])) ~ "On",
+      (x < exp(hdi(dens.data$wean.vs.lact, .width = .95)[1]) &
+       x > exp(hdi(dens.data$wean.vs.lact, .width = .95)[2])) ~ "Off",
+      TRUE ~ NA_character_))
+
+
+wean.vs.lact=
+  ggplot(data.all.dens, aes(x, y)) + geom_line() +
+  geom_area(data = filter(data.all.dens), fill = 'lightblue') +
+  geom_area(data = filter(data.hpdi, variable == 'On'), fill = 'cornflowerblue') + 
+  theme(axis.text.x = element_text(size=14), 
+        axis.text.y = element_text(size=14, color="white"),
+        axis.title.y = element_text(size=18, margin = margin(t = 0, r = 15, b = 0, l = 0)),
+        axis.title.x = element_text(size=18, margin = margin(t = 15, r = 0, b = 0, l = 0)),
+        plot.title = element_text(size=20, hjust = 0.5),
+        axis.ticks.y = element_line(color="white")) +
+  scale_x_continuous(name ="Odds ratio", limits = c(-0.2,6)) +
+  scale_y_continuous(name =" ", limits = c(0,1.6)) +
+  ggtitle("Weaning versus Lactation") +
+  geom_vline(xintercept = 1) 
+
+
+
+# Lactation versus Rest of the year
+
+dens <- density(exp(dens.data$lact.vs.rest))
+
+data.all.dens=tibble(x = dens$x, y = dens$y)
+
+data.hpdi <- tibble(x = dens$x, y = dens$y) %>% 
+    mutate(variable = case_when(
+      (x >= exp(hdi(dens.data$lact.vs.rest, .width = .95)[1]) &
+       x <= exp(hdi(dens.data$lact.vs.rest, .width = .95)[2])) ~ "On",
+      (x < exp(hdi(dens.data$lact.vs.rest, .width = .95)[1]) &
+       x > exp(hdi(dens.data$lact.vs.rest, .width = .95)[2])) ~ "Off",
+      TRUE ~ NA_character_))
+
+
+lact.vs.rest=
+  ggplot(data.all.dens, aes(x, y)) + geom_line() +
+  geom_area(data = filter(data.all.dens), fill = 'lightblue') +
+  geom_area(data = filter(data.hpdi, variable == 'On'), fill = 'cornflowerblue') + 
+  theme(axis.text.x = element_text(size=14), 
+        axis.text.y = element_text(size=14, color="white"),
+        axis.title.y = element_text(size=18, margin = margin(t = 0, r = 15, b = 0, l = 0)),
+        axis.title.x = element_text(size=18, margin = margin(t = 15, r = 0, b = 0, l = 0)),
+        plot.title = element_text(size=20, hjust = 0.5),
+        axis.ticks.y = element_line(color="white")) +
+  scale_x_continuous(name ="Odds ratio", limits = c(-0.2,6)) +
+  scale_y_continuous(name =" ", limits = c(0,1.6)) +
+  ggtitle("Lactation versus Rest of the Year") +
+  geom_vline(xintercept = 1) 
+
+
+
+# Plot 
+
+
+ready=grid.arrange(grobs = list(wean.vs.rest, #+ theme(plot.margin = unit(c(0,0,0,0), "cm")),
+                                wean.vs.lact, #+ theme(plot.margin = unit(c(0,0.3,0,1.5), "cm")),
+                                lact.vs.rest), #+ theme(plot.margin = unit(c(0,0.4,0,1.4), "cm"))), nrow=1)
+                                nrow=1)
+
+ggsave(filename = "figure3.tiff", plot = ready, device = "tiff", width = 40, height = 12, units = "cm")
 
 
 
 
 ```
-
-Run the hierarchical model
-
-```{r run hierarchical model, message=FALSE, warning=FALSE, eval=FALSE}
-
-N <- nrow(tz.dat)
-K <- length(unique(tz.dat$repro))
-J <- length(unique(tz.dat$month))
-y <- tz.dat$pos
-
-index_months <- as.integer(factor(tz.dat$month, levels = month.name[c(8:12,1:7)]))
-
-index_repro_periods=sapply(month.name[c(8:12,1:7)], function(x)
-  as.integer(factor(tz.dat$repro, levels = c("rest", "birth", "weaning")))[tz.dat$month==x][1])
-
-
-data=list(N=N, 
-          K=K,
-          J=J,
-          y=y,
-          index_repro_periods=index_repro_periods, 
-          index_months=index_months)
-
-
-mod_hierarchical_stan <- stan(model_code = modelstring_hierachical,  
-                      data = data, control = list(adapt_delta=0.999, max_treedepth =17),
-                      cores=4, chains=4, warmup = 5000, iter = 10000, thin = 5)
-
-
-saveRDS(mod_hierarchical_stan, "hierarchical_model.RDS")  
-
-```
-
-# RESULTS
-
-
 
 ## Supporting Information 1
 
-Intercept only model
-```{r supporting information 1 int model ,,message=FALSE, warning=FALSE}
+Summary rhat's
 
-# Traceplots
+```{r supporting information 1 rhats, message=FALSE, warning=FALSE}
+# rhat 
+
+summ.rhat=lapply(
+list(mod_intercept_stan, mod_sine_cos_stan, mod_fixed_stan, mod_hierarchical_stan), 
+function(x)
+summary(summary(x)$summary[,"Rhat"]))
+
+summ.rhat=round(do.call(rbind,summ.rhat),4)
+
+summ.rhat=
+  cbind(c("Intercept model", 
+            "Sine cosine model",
+            "Fixed effects model",
+              "Hierarchical model"),
+  summ.rhat)
 
 
-# Intercept only
-
-# Traceplots
-# jpeg("Traceplots_intercept_only_model.jpeg", width = 1100, height = 1000)
-traceplot(mod_intercept_stan, pars="alpha") +
-  
-  theme(legend.title = element_text(size = 24),
-        legend.text = element_text( size = 20), 
-        axis.text.x = element_text(size=20), 
-        axis.text.y = element_text(size=20),
-        axis.title.y = element_text(size=34, margin = margin(t = 0, r = 15, b = 0, l = 0)),
-        axis.title.x = element_text(size=34, margin = margin(t = 15, r = 0, b = 0, l = 0)))
-# dev.off()
+summ.rhat %>%
+  kbl() %>%
+  kable_paper(full_width = F)
 
 ```
 
-Sine-cosine model
+Summary number of effective samples
 
-```{r supporting information 1 sine - cosine model, message=FALSE, warning=FALSE}
+```{r supporting information 1 num effective samples, message=FALSE, warning=FALSE}
+
+summ.neff=lapply(
+list(mod_intercept_stan, mod_sine_cos_stan, mod_fixed_stan, mod_hierarchical_stan), 
+function(x)
+summary(summary(x)$summary[,"n_eff"]))
+
+summ.neff=round(do.call(rbind,summ.neff),4)
+
+summ.neff=
+  cbind(c("Intercept model", 
+            "Sine cosine model",
+            "Fixed effects model",
+              "Hierarchical model"),
+  summ.neff)
+
+
+summ.neff %>%
+  kbl() %>%
+  kable_paper(full_width = F)
+
+```
+
+
+Summary of the Posterior Probability Distributions of the sine-cosine logistic model parameters.
+
+```{r supporting information 1 sine - cosine model 1, message=FALSE, warning=FALSE}
 
 
 # Summary of the Posterior Probability Distributions of the sine-cosine logistic model parameters.
@@ -833,12 +1133,16 @@ mclapply(c("alpha", "beta_sine", "beta_cosine"),
         3),
        mc.cores = 3)))
 
-
-# Table sine - cosine coefficients
+#Table
 out %>%
   kbl() %>%
   kable_paper(full_width = F)
 
+```
+
+Traceplots
+
+```{r supporting information 1 sine - cosine model 2, message=FALSE, warning=FALSE}
 
 
 
@@ -1149,7 +1453,7 @@ ready=grid.arrange(grobs = out, nrow=3, ncol=2)
 #        units = "cm")
 ```
 
-# Posterior probability distributions of the reproductive period-level standard deviation (σR; pale red) and the month-level standard deviation (σM; pale green).
+Posterior probability distributions of the reproductive period-level standard deviation (σR; pale red) and the month-level standard deviation (σM; pale green).
 
 ```{r supporting information 3.3,,message=FALSE, warning=FALSE}
 
