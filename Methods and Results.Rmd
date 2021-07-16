@@ -451,7 +451,7 @@ mod_fixed_stan <- stan(model_code = modelstring_fixed,
                   data = data, control = list(adapt_delta=0.999, max_treedepth =17),
                   cores=4, chains=4, warmup = 5000, iter = 10000, thin = 5)
 
-saveRDS(mod_fixed_stan, "model_repro_periods_only_fixed_effects.RDS")  
+# saveRDS(mod_fixed_stan, "model_repro_periods_only_fixed_effects.RDS")  
 
 
 
@@ -486,7 +486,7 @@ mod_hierarchical_stan <- stan(model_code = modelstring_hierachical,
                       cores=4, chains=4, warmup = 5000, iter = 10000, thin = 5)
 
 
-saveRDS(mod_hierarchical_stan, "hierarchical_model.RDS")  
+# saveRDS(mod_hierarchical_stan, "hierarchical_model.RDS")  
 
 ```
 
@@ -798,7 +798,7 @@ gh.dat%>%group_by(repro.per)%>%dplyr::summarize(prop.feces.per.period=mean(posit
 
 Intercept versus Seasonal Model
 
-```{r run sine-cosine model, message=FALSE, warning=FALSE, eval=T}
+```{r compare intercept seasonal models, message=FALSE, warning=FALSE, eval=T}
 
 mod_intercept_stan=readRDS("model_intercept.RDS")
 mod_sine_cos_stan=readRDS("model_sine_cosine.RDS")
@@ -1034,7 +1034,7 @@ lact.vs.rest=
         axis.ticks.y = element_line(color="white")) +
   scale_x_continuous(name ="Odds ratio", limits = c(-0.2,6)) +
   scale_y_continuous(name =" ", limits = c(0,1.6)) +
-  ggtitle("Lactation versus Rest of the Year") +
+  ggtitle("Lactation versus Rest of the year") +
   geom_vline(xintercept = 1) 
 
 
@@ -1047,10 +1047,9 @@ ready=grid.arrange(grobs = list(wean.vs.rest, #+ theme(plot.margin = unit(c(0,0,
                                 lact.vs.rest), #+ theme(plot.margin = unit(c(0,0.4,0,1.4), "cm"))), nrow=1)
                                 nrow=1)
 
-ggsave(filename = "figure3.tiff", plot = ready, device = "tiff", width = 40, height = 12, units = "cm")
+ # ggsave(filename = "figure3.tiff", plot = ready, device = "tiff", width = 40, height = 12, units = "cm")
 
-
-
+ready
 
 ```
 
@@ -1060,6 +1059,9 @@ Summary rhat's
 
 ```{r supporting information 1 rhats, message=FALSE, warning=FALSE}
 # rhat 
+mod_hierarchical_stan<-readRDS("hierarchical_model.RDS")  
+
+
 
 summ.rhat=lapply(
 list(mod_intercept_stan, mod_sine_cos_stan, mod_fixed_stan, mod_hierarchical_stan), 
@@ -1309,6 +1311,39 @@ traceplot(mod_hierarchical_stan, pars="sigma_month") +
 
 
 ##Supporting Information 2
+
+Summary of the Posterior Probability Distributions of the fixed effects model parameters.
+
+```{r supporting information 2 fixed effects model, message=FALSE, warning=FALSE}
+
+
+# Summary of the Posterior Probability Distributions of the sine-cosine logistic model parameters.
+
+out=
+cbind(
+round(
+  # summary mean sd of coeffiecients
+  summary(mod_fixed_stan, pars = c("alpha",
+                                        "beta_wean",
+                                        "beta_lact"))$summary, 3)[,c("mean", "sd")],
+
+#HPDI coefficients
+do.call(rbind,
+mclapply(c("alpha", "beta_wean", "beta_lact"), 
+       function(x) 
+       round(
+        HPDI(
+          unlist(c(extract(mod_fixed_stan)[x]), use.names = F), 0.95),
+        3),
+       mc.cores = 3)))
+
+#Table
+out %>%
+  kbl() %>%
+  kable_paper(full_width = F)
+
+```
+
 
 Summary of the Posterior Probability Distributions of the hierarchical model parameters.
 
