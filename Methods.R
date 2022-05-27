@@ -64,7 +64,7 @@ accra.morogoro<-world.cities%>%
                          c(2, 3))
  )
 
-figure1
+figure1 #test
 
 ggsave(file="figure1.tiff", figure1)
 
