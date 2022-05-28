@@ -29,10 +29,10 @@ accra.morogoro<-world.cities%>%
  main.plot= ggplot() + 
   geom_sf(data= africa, fill="white", color="white", lwd=0.2) +
   geom_sf(data = tanzania.ghana, fill="grey80", color="grey70", lwd=0.2) +
-  geom_sf(data = accra.morogoro, size = 3, shape = 21, color=alpha("tomato", 0), fill=alpha("red", 0.9), inherit.aes = FALSE) +
+  geom_sf(data = accra.morogoro, size = 7, shape = 21, color=alpha("tomato", 0), fill=alpha("red", 0.9), inherit.aes = FALSE) +
   geom_sf_text(data = accra.morogoro, 
-               aes(label=name), hjust="left", nudge_x = 1.5, size=5) +
-  annotation_scale(location = "bl", width_hint = 0.6) +
+               aes(label=name), hjust="center", vjust=1.8, nudge_x = 1.5, size=10) +
+  annotation_scale(location = "bl", width_hint = 0.6, line_width = 1, text_cex = 2, height= unit(0.5, "cm")) +
   theme(panel.background = element_rect(fill = 'light blue', colour = NA),
         panel.grid.minor = element_blank(),
         panel.grid.major = element_blank(),
@@ -43,16 +43,22 @@ accra.morogoro<-world.cities%>%
         plot.margin=margin(0,0,0,0, "cm"),
         panel.border=element_blank(), 
         panel.spacing = unit(0, "cm"),
-        axis.line=element_blank())
+        axis.line=element_blank()) +
+  annotate(geom="text", x=50.2, y=36, label="A", color="black", size=9)
+   
   
 # morogoro and accra colonies
  
  # Example with PNG (for fun, the OP's avatar - I love the raccoon)
  accra.picture=ggdraw() +
-   draw_image("accra.jpeg") #+
+   draw_image("accra.jpeg") + 
+   annotate(geom="text", x=0.05, y=0.82, label="B", color="black", size=9)
+ 
  # draw_plot(my_plot)
  morogoro.picture=ggdraw() +
-   draw_image("Morogoro.png") #+
+   draw_image("Morogoro.png") +
+   annotate(geom="text", x=0.05, y=0.82, label="C", color="black", size=9)
+ 
  
 
  figure1=
@@ -64,7 +70,7 @@ accra.morogoro<-world.cities%>%
                          c(2, 3))
  )
 
-figure1 #test
+figure1 #test 3
 
 ggsave(file="figure1.tiff", figure1)
 
