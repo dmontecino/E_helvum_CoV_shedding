@@ -36,11 +36,12 @@ library(DescTools)
 library(openxlsx)
 library(grid)
 library(kableExtra)
+library(rentrez)
 ```
 
 # METHODS
 
-Fig 1. Location of the studied E. helvum roost in Africa (right). The frames at the left show some of the trees occupied at the 37 Military Hospital (top) and at the Kikundi Market (bottom).
+Fig 1. Location of the studied Eidolon helvum roosts. Panel A shows the position of the roost in in Africa. Panel B shows some of the trees occupied at the 37 Military Hospital and Panel C at the Kikundi Market.
 
 ```{r fig 1 ,message=FALSE, warning=FALSE}
 
@@ -785,6 +786,14 @@ ready=grid.arrange(grobs = list(precip.mor + theme(plot.margin = unit(c(0.2,0.2,
 
 ```
 
+Overall proportion of positive feces 
+
+```{r overallprop pos feces, message=FALSE, warning=FALSE}
+mean(tz.dat$positive)
+mean(gh.dat$positive)
+
+```
+
 Proportion of positive feces in the “lactation”, “weaning”, and the “rest of the year” periods
 
 ```{r prop pos feces, message=FALSE, warning=FALSE}
@@ -792,6 +801,201 @@ tz.dat%>%group_by(repro.per)%>%dplyr::summarize(prop.feces.per.period=mean(posit
 gh.dat%>%group_by(repro.per)%>%dplyr::summarize(prop.feces.per.period=mean(positive))
 
 ```
+
+BLAST results for Acra
+
+```{r blast results accra, message=FALSE, warning=FALSE}
+
+blast.quan.gh=read.csv("ghana_blast_quan_results.csv")
+blast.wata.gh=read.csv("ghana_blast_watanabe_results.csv")
+
+# blast.quan.gh=blast.quan.gh[blast.quan.gh$Organism=="Eidolon bat",]
+# blast.wata.gh=blast.wata.gh[blast.wata.gh$Organism=="Eidolon bat",]
+
+
+blast.quan.gh=
+blast.quan.gh %>% 
+  # Within each grouping of A and B values.
+  group_by( Query) %>% 
+  # Sort rows in descending order by "value" column.
+  arrange(desc( X..Pairwise.Identity)) %>% 
+  # Pick the top 1 value
+  slice(1) %>% 
+  # Remember to ungroup in case you want to do further work without grouping.
+  ungroup() %>%
+  
+  select(Maximum, X..Pairwise.Identity, Organism, Query, Accession)
+
+blast.quan.gh$Query<-sapply(strsplit(blast.quan.gh$Query, "_"), function (x) x[1])
+
+
+temp=gh.dat[gh.dat$positive==1,]$individual_id
+temp=gsub(x =temp,  pattern = "GHAB0", replacement = "GHAB")
+blast.quan.gh=blast.quan.gh[blast.quan.gh$Query%in%temp,]
+
+#table(blast.quan.gh$Query)blast.wata.gh=
+blast.quan.gh=
+blast.quan.gh %>% 
+  # Within each grouping of A and B values.
+  group_by( Query) %>% 
+  # Sort rows in descending order by "value" column.
+  arrange(desc(X..Pairwise.Identity)) %>% 
+  # Pick the top 1 value
+  slice(1) %>%
+  ungroup() 
+  
+
+
+
+
+
+blast.wata.gh=
+blast.wata.gh %>% 
+  # Within each grouping of A and B values.
+  group_by( Query) %>% 
+  # Sort rows in descending order by "value" column.
+  arrange(desc(X..Pairwise.Identity)) %>% 
+  # Pick the top 1 value
+  slice(1) %>% 
+  # Remember to ungroup in case you want to do further work without grouping.
+  ungroup() %>%
+  # select specific columns
+  select(Maximum, X..Pairwise.Identity, Organism, Query, Accession)
+
+blast.wata.gh$Query<-sapply(strsplit(blast.wata.gh$Query, "_"), function (x) x[1])
+
+temp=gh.dat[gh.dat$positive==1,]$individual_id
+temp=gsub(x =temp,  pattern = "GHAB0", replacement = "GHAB")
+blast.wata.gh=blast.wata.gh[blast.wata.gh$Query%in%temp,]
+
+
+blast.wata.gh=
+blast.wata.gh %>% 
+  # Within each grouping of A and B values.
+  group_by(Query) %>% 
+  # Sort rows in descending order by "value" column.
+  arrange(desc(X..Pairwise.Identity)) %>% 
+  # Pick the top 1 value
+  slice(1)  %>%
+  ungroup() 
+
+
+
+
+blast.gh=
+rbind(blast.quan.gh, blast.wata.gh)%>%
+  group_by( Query) %>% 
+  arrange(desc(X..Pairwise.Identity)) %>% 
+  slice(1) 
+
+
+summary(as.numeric(sub("%","",blast.gh$X..Pairwise.Identity)))
+
+ # Find the organism
+Sys.setenv(ENTREZ_KEY='3715d8f9fde19f739d106dfc25f5c28ec509')
+
+organism=rentrez::entrez_summary(db = "nuccore", id =blast.gh$Accession)
+blast.gh$organism=unname(sapply(organism, function (x) x$organism, USE.NAMES = F))
+
+```
+
+
+BLAST results for Morogoro
+
+```{r blast results morogoro, message=FALSE, warning=FALSE}
+
+
+blast.quan.tz=read.csv("tz_blast_quan_results.csv")
+blast.wata.tz=read.csv("tz_blast_watanabe_results.csv")
+
+blast.quan.tz=blast.quan.tz[blast.quan.tz$Organism=="Eidolon bat",]
+blast.wata.tz=blast.wata.tz[blast.wata.tz$Organism=="Eidolon bat",]
+
+
+blast.quan.tz=
+blast.quan.tz %>% 
+  # Within each grouping of A and B values.
+  group_by( Query) %>% 
+  # Sort rows in descending order by "value" column.
+  arrange(desc( X..Pairwise.Identity)) %>% 
+  # Pick the top 1 value
+  slice(1) %>% 
+  # Remember to ungroup in case you want to do further work without grouping.
+  ungroup() %>%
+  
+  select(Maximum, X..Pairwise.Identity, Organism, Query, Accession)
+
+blast.quan.tz$Query<-sapply(strsplit(blast.quan.tz$Query, "_"), function (x) x[1])
+
+
+temp=tz.dat[tz.dat$positive==1,]$individual_id
+blast.quan.tz=blast.quan.tz[blast.quan.tz$Query%in%temp,]
+
+#table(blast.quan.gh$Query)blast.wata.gh=
+blast.quan.tz=
+blast.quan.tz %>% 
+  # Within each grouping of A and B values.
+  group_by( Query) %>% 
+  # Sort rows in descending order by "value" column.
+  arrange(desc(X..Pairwise.Identity)) %>% 
+  # Pick the top 1 value
+  slice(1) %>%
+  ungroup() 
+  
+
+
+
+
+
+blast.wata.tz=
+blast.wata.tz %>% 
+  # Within each grouping of A and B values.
+  group_by( Query) %>% 
+  # Sort rows in descending order by "value" column.
+  arrange(desc(X..Pairwise.Identity)) %>% 
+  # Pick the top 1 value
+  slice(1) %>% 
+  # Remember to ungroup in case you want to do further work without grouping.
+  ungroup() %>%
+  # select specific columns
+  select(Maximum, X..Pairwise.Identity, Organism, Query, Accession)
+
+blast.wata.tz$Query<-sapply(strsplit(blast.wata.tz$Query, "_"), function (x) x[1])
+
+temp=tz.dat[tz.dat$positive==1,]$individual_id
+blast.wata.tz=blast.wata.tz[blast.wata.tz$Query%in%temp,]
+
+
+blast.wata.tz=
+blast.wata.tz %>% 
+  # Within each grouping of A and B values.
+  group_by(Query) %>% 
+  # Sort rows in descending order by "value" column.
+  arrange(desc(X..Pairwise.Identity)) %>% 
+  # Pick the top 1 value
+  slice(1)  %>%
+  ungroup() 
+
+
+
+
+blast.tz=
+rbind(blast.quan.tz, blast.wata.tz)%>%
+  group_by( Query) %>% 
+  arrange(desc(X..Pairwise.Identity)) %>% 
+  slice(1) 
+
+
+summary(as.numeric(sub("%","",blast.tz$X..Pairwise.Identity)))
+
+ # Find the organism
+Sys.setenv(ENTREZ_KEY='3715d8f9fde19f739d106dfc25f5c28ec509')
+
+organism=rentrez::entrez_summary(db = "nuccore", id =blast.tz$Accession)
+blast.tz$organism=unname(sapply(organism, function (x) x$organism, USE.NAMES = F))
+
+```
+
 
 Intercept versus Seasonal Model
 
@@ -1143,6 +1347,7 @@ Traceplots
 
 ```{r supporting information 1 sine - cosine model 2, message=FALSE, warning=FALSE}
 
+#mod_sine_cos_stan<-readRDS( "model_sine_cosine.RDS")
 
 
 # jpeg("Traceplots_sine_cosine_model_alpha.jpeg", width = 1100, height = 1000)
