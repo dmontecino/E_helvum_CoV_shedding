@@ -892,7 +892,7 @@ rbind(blast.quan.gh, blast.wata.gh)%>%
 summary(as.numeric(sub("%","",blast.gh$X..Pairwise.Identity)))
 
  # Find the organism
-Sys.setenv(ENTREZ_KEY='3715d8f9fde19f739d106dfc25f5c28ec509')
+Sys.setenv(ENTREZ_KEY='yourkey')
 
 organism=rentrez::entrez_summary(db = "nuccore", id =blast.gh$Accession)
 blast.gh$organism=unname(sapply(organism, function (x) x$organism, USE.NAMES = F))
@@ -989,8 +989,6 @@ rbind(blast.quan.tz, blast.wata.tz)%>%
 summary(as.numeric(sub("%","",blast.tz$X..Pairwise.Identity)))
 
  # Find the organism
-Sys.setenv(ENTREZ_KEY='3715d8f9fde19f739d106dfc25f5c28ec509')
-
 organism=rentrez::entrez_summary(db = "nuccore", id =blast.tz$Accession)
 blast.tz$organism=unname(sapply(organism, function (x) x$organism, USE.NAMES = F))
 
