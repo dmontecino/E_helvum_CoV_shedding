@@ -36,6 +36,8 @@ library(DescTools)
 library(openxlsx)
 library(grid)
 library(kableExtra)
+library(XML)
+library(methods)
 library(rentrez)
 ```
 
@@ -809,8 +811,8 @@ BLAST results for Acra
 blast.quan.gh=read.csv("ghana_blast_quan_results.csv")
 blast.wata.gh=read.csv("ghana_blast_watanabe_results.csv")
 
-# blast.quan.gh=blast.quan.gh[blast.quan.gh$Organism=="Eidolon bat",]
-# blast.wata.gh=blast.wata.gh[blast.wata.gh$Organism=="Eidolon bat",]
+blast.quan.gh=blast.quan.gh[blast.quan.gh$Organism=="Eidolon bat",]
+blast.wata.gh=blast.wata.gh[blast.wata.gh$Organism=="Eidolon bat",]
 
 
 blast.quan.gh=
@@ -832,18 +834,18 @@ blast.quan.gh$Query<-sapply(strsplit(blast.quan.gh$Query, "_"), function (x) x[1
 temp=gh.dat[gh.dat$positive==1,]$individual_id
 temp=gsub(x =temp,  pattern = "GHAB0", replacement = "GHAB")
 blast.quan.gh=blast.quan.gh[blast.quan.gh$Query%in%temp,]
-
-#table(blast.quan.gh$Query)blast.wata.gh=
+# 
+# #table(blast.quan.gh$Query)blast.wata.gh=
 blast.quan.gh=
-blast.quan.gh %>% 
+blast.quan.gh %>%
   # Within each grouping of A and B values.
-  group_by( Query) %>% 
+  group_by( Query) %>%
   # Sort rows in descending order by "value" column.
-  arrange(desc(X..Pairwise.Identity)) %>% 
+  arrange(desc(X..Pairwise.Identity)) %>%
   # Pick the top 1 value
   slice(1) %>%
-  ungroup() 
-  
+  ungroup()
+
 
 
 
@@ -891,7 +893,7 @@ rbind(blast.quan.gh, blast.wata.gh)%>%
 
 summary(as.numeric(sub("%","",blast.gh$X..Pairwise.Identity)))
 
- # Find the organism
+ # Find the organism of the matching sequence
 Sys.setenv(ENTREZ_KEY='yourkey')
 
 organism=rentrez::entrez_summary(db = "nuccore", id =blast.gh$Accession)
@@ -988,7 +990,7 @@ rbind(blast.quan.tz, blast.wata.tz)%>%
 
 summary(as.numeric(sub("%","",blast.tz$X..Pairwise.Identity)))
 
- # Find the organism
+ # Find the organism of the matching sequence
 organism=rentrez::entrez_summary(db = "nuccore", id =blast.tz$Accession)
 blast.tz$organism=unname(sapply(organism, function (x) x$organism, USE.NAMES = F))
 
@@ -1249,6 +1251,75 @@ ready=grid.arrange(grobs = list(wean.vs.rest, #+ theme(plot.margin = unit(c(0,0,
  # ggsave(filename = "figure3.tiff", plot = ready, device = "tiff", width = 40, height = 12, units = "cm")
 
 ready
+
+```
+
+# DISCUSSION
+
+Percentage of Eidolon bat coronavirus in E. helvum versus other coronaviruses detected in this species
+
+
+```{r Eidolon bat coronavirus/Kenya/KY24/2006 detection in E. helvum, message=FALSE, warning=FALSE}
+
+# Search in the nucleotide database of the national library of medicine
+#((((deltacoronavirus) NOT human) NOT homo) NOT sapiens) 
+#((((gammacoronavirus) NOT human) NOT homo) NOT sapiens) 
+#((((betacoronavirus) NOT human) NOT homo) NOT sapiens) 
+#((((alphacoronavirus) NOT human) NOT homo) NOT sapiens) 
+#((((coronavirus) NOT human) NOT homo) NOT sapiens) 
+
+gb.all=readRDS( "/Users/DMontecino/Documents/CoV_Wildlife/Data/COV_data_Feb_12_2022.RDS")
+
+gb.all$CoV=NA
+
+gb.all[is.na(gb.all$species),]$species="Unknown"
+
+
+
+# General results
+
+
+#total number of records 
+
+nrow(gb.all)
+nrow(gb.all[gb.all$species!="Unknown",])
+
+#
+sort(table(gb.all[gb.all$species!="Unknown",]$species, useNA = "always"))
+
+
+
+
+
+#numbr of unique classes
+gb.all[which(gb.all$class=="Bivalvia"),]$host="Chaerephon plicatus"
+gb.all[which(gb.all$class=="Bivalvia"),]$species="Chaerephon plicatus"
+gb.all[which(gb.all$class=="Bivalvia"),]$genus="Chaerephon"
+gb.all[which(gb.all$class=="Bivalvia"),]$family="Molossidae"
+gb.all[which(gb.all$class=="Bivalvia"),]$order="Chiroptera"
+gb.all[which(gb.all$class=="Bivalvia"),]$class="Mammalia"
+
+
+# unique(gb.all[gb.all$country=="Ghana" & gb.all$host=="Eidolon helvum",]$Description)
+# unique(gb.all[gb.all$country=="Ghana" & gb.all$host=="Eidolon helvum",]$Accession)
+# unique(gb.all[gb.all$country=="Ghana" & gb.all$host=="Eidolon helvum",]$Organism)
+# 
+# sort(unique(gb.all[gb.all$country=="Tanzania" & gb.all$host=="Eidolon helvum" & grepl(pattern = "TZAB", gb.all$Description),]$Description))
+# unique(gb.all[gb.all$country=="Tanzania" & gb.all$host=="Eidolon helvum" & grepl(pattern = "TZAB", gb.all$Description),]$Accession)
+# unique(gb.all[gb.all$country=="Tanzania" & gb.all$host=="Eidolon helvum" & grepl(pattern = "TZAB", gb.all$Description),]$Organism)
+
+
+gb.all[ gb.all$host=="Eidolon helvum" & !grepl(pattern = "TZAB|GHAB", gb.all$Description),]$Organism
+
+prop.table(table(gb.all[ gb.all$host=="Eidolon helvum" & !grepl(pattern = "TZAB|GHAB", gb.all$Description),]$Organism))*100
+```
+
+Other species where Eidolon bat coronavirus/Kenya/KY24/2006 has been reported
+
+```{r Eidolon bat coronavirus/Kenya/KY24/2006 species detection in E. helvum, message=FALSE, warning=FALSE}
+
+sort(unique(gb.all[ gb.all$Organism=="Eidolon bat coronavirus/Kenya/KY24/2006",]$host))
+
 
 ```
 
